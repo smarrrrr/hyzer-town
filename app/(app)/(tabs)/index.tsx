@@ -4,6 +4,30 @@ import { useAuth } from '@/lib/auth';
 import { getRoundsImportedBy, getUserProfile } from '@/lib/rounds';
 import type { Round, PlayerScore } from '@/lib/types';
 
+function fmtRelScore(relativeToPar: number | null, total: number): string {
+  if (relativeToPar == null) return String(total);
+  const rel = relativeToPar === 0 ? 'E' : relativeToPar > 0 ? `+${relativeToPar}` : `${relativeToPar}`;
+  return `${rel} (${total})`;
+}
+
+function relScoreColor(relativeToPar: number | null): string {
+  if (relativeToPar == null || relativeToPar === 0) return '#fff';
+  return relativeToPar < 0 ? '#3b82f6' : '#f97316';
+}
+
+function getHoleStats(player: PlayerScore, pars: (number | null)[]) {
+  let birdies = 0, parsCount = 0, bogeys = 0, doubles = 0;
+  player.holes.forEach((score, i) => {
+    if (score == null || pars[i] == null) return;
+    const diff = score - pars[i]!;
+    if (diff <= -1) birdies++;
+    else if (diff === 0) parsCount++;
+    else if (diff === 1) bogeys++;
+    else doubles++;
+  });
+  return { birdies, pars: parsCount, bogeys, doubles };
+}
+
 export default function HomeScreen() {
   const { user } = useAuth();
   const [rounds, setRounds] = useState<Round[]>([]);
@@ -99,7 +123,13 @@ export default function HomeScreen() {
                   </View>
                 </TouchableOpacity>
 
-                {expanded && <InlineScorecard round={round} />}
+                {expanded && (
+                  <>
+                    <PlayerSummarySection round={round} />
+                    <InlineScorecard round={round} />
+                    <PlayerOverviewSection round={round} />
+                  </>
+                )}
               </View>
             );
           })}
@@ -233,6 +263,82 @@ function ScoreCell({ score, par }: { score: number | null; par: number | null })
   );
 }
 
+function PlayerSummarySection({ round }: { round: Round }) {
+  return (
+    <View style={styles.psSec}>
+      {round.players.map((player, i) => (
+        <View key={player.name} style={[styles.psRow, i > 0 && styles.psRowBorder]}>
+          <Text style={styles.psName} numberOfLines={1}>{player.name}</Text>
+          <View style={styles.psRight}>
+            <Text style={[styles.psScore, { color: relScoreColor(player.relativeToPar) }]}>
+              {fmtRelScore(player.relativeToPar, player.total)}
+            </Text>
+            {player.roundRating != null && (
+              <View style={styles.ratingPill}>
+                <Text style={styles.ratingPillText}>✦{player.roundRating}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function PlayerOverviewSection({ round }: { round: Round }) {
+  return (
+    <View style={styles.ovSec}>
+      <Text style={styles.ovTitle}>Player overview</Text>
+      {round.players.map(player => {
+        const stats = getHoleStats(player, round.pars);
+        const totalHoles = stats.birdies + stats.pars + stats.bogeys + stats.doubles;
+        const birdiePct = totalHoles > 0 ? Math.round((stats.birdies / totalHoles) * 100) : 0;
+        const overPar = stats.bogeys + stats.doubles;
+        return (
+          <View key={player.name} style={styles.ovCard}>
+            <View style={styles.ovCardHeader}>
+              <Text style={styles.ovPlayerName} numberOfLines={1}>{player.name}</Text>
+              <View style={styles.psRight}>
+                <Text style={[styles.psScore, { color: relScoreColor(player.relativeToPar) }]}>
+                  {fmtRelScore(player.relativeToPar, player.total)}
+                </Text>
+                {player.roundRating != null && (
+                  <View style={styles.ratingPill}>
+                    <Text style={styles.ratingPillText}>✦{player.roundRating}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+            <View style={styles.ovStatsRow}>
+              <View style={styles.ovBirdiePctBox}>
+                <Text style={styles.ovBirdiePct}>{birdiePct}%</Text>
+                <Text style={styles.ovBirdieLabel}>BIRDIES</Text>
+              </View>
+              <View style={styles.ovBar}>
+                {stats.birdies > 0 && (
+                  <View style={[styles.ovBarSeg, styles.ovBarBirdie, { flex: stats.birdies }]}>
+                    <Text style={styles.ovBarText}>{stats.birdies}</Text>
+                  </View>
+                )}
+                {stats.pars > 0 && (
+                  <View style={[styles.ovBarSeg, styles.ovBarPar, { flex: stats.pars }]}>
+                    <Text style={styles.ovBarText}>{stats.pars}</Text>
+                  </View>
+                )}
+                {overPar > 0 && (
+                  <View style={[styles.ovBarSeg, styles.ovBarBogey, { flex: overPar }]}>
+                    <Text style={styles.ovBarText}>{overPar}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.statCard}>
@@ -348,4 +454,124 @@ const styles = StyleSheet.create({
   },
   scCircle: { borderRadius: 11 },
   scSquare: { borderRadius: 4 },
+
+  // Player summary section
+  psSec: {
+    borderTopWidth: 1,
+    borderTopColor: '#2d5a3d',
+    paddingHorizontal: 14,
+    paddingTop: 4,
+    paddingBottom: 4,
+  },
+  psRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 9,
+    gap: 8,
+  },
+  psRowBorder: {
+    borderTopWidth: 1,
+    borderTopColor: '#2d5a3d',
+  },
+  psName: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  psRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  psScore: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  ratingPill: {
+    backgroundColor: '#0a1f3a',
+    borderRadius: 20,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+  },
+  ratingPillText: {
+    color: '#93c5fd',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  // Player overview section
+  ovSec: {
+    borderTopWidth: 1,
+    borderTopColor: '#2d5a3d',
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
+  ovTitle: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+    paddingHorizontal: 14,
+    marginBottom: 4,
+  },
+  ovCard: {
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#2d5a3d',
+  },
+  ovCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
+  },
+  ovPlayerName: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  ovStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  ovBirdiePctBox: {
+    alignItems: 'center',
+    width: 40,
+  },
+  ovBirdiePct: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  ovBirdieLabel: {
+    color: '#8fb89a',
+    fontSize: 8,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  ovBar: {
+    flex: 1,
+    height: 28,
+    flexDirection: 'row',
+    borderRadius: 6,
+    overflow: 'hidden',
+    gap: 2,
+  },
+  ovBarSeg: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 24,
+  },
+  ovBarBirdie: { backgroundColor: '#3b82f6' },
+  ovBarPar: { backgroundColor: '#2d5a3d' },
+  ovBarBogey: { backgroundColor: 'rgba(249,115,22,0.65)' },
+  ovBarText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
 });
