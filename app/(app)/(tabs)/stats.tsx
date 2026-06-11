@@ -10,12 +10,18 @@ import type { Round, PlayerScore } from '@/lib/types';
 
 type Section = 'courses' | 'h2h' | 'scoring';
 
+interface CourseRound {
+  date: string;
+  relToPar: number;
+}
+
 interface CourseStats {
   courseName: string;
   rounds: number;
   avgRelToPar: number;
   bestRelToPar: number;
   layouts: string[];
+  history: CourseRound[];
 }
 
 interface H2HEntry {
@@ -52,22 +58,24 @@ function relColor(n: number): string {
 }
 
 function computeCourseStats(rounds: Round[], udiscNames: string[]): CourseStats[] {
-  const map = new Map<string, { rels: number[]; layouts: Set<string> }>();
+  const map = new Map<string, { rels: number[]; layouts: Set<string>; history: CourseRound[] }>();
   for (const round of rounds) {
     const me = round.players.find(p => udiscNames.includes(p.name));
     if (!me || me.relativeToPar == null) continue;
-    const existing = map.get(round.courseName) ?? { rels: [], layouts: new Set<string>() };
+    const existing = map.get(round.courseName) ?? { rels: [], layouts: new Set<string>(), history: [] };
     existing.rels.push(me.relativeToPar);
     existing.layouts.add(round.layoutName);
+    existing.history.push({ date: round.startDate, relToPar: me.relativeToPar });
     map.set(round.courseName, existing);
   }
   return Array.from(map.entries())
-    .map(([courseName, { rels, layouts }]) => ({
+    .map(([courseName, { rels, layouts, history }]) => ({
       courseName,
       rounds: rels.length,
       avgRelToPar: rels.reduce((a, b) => a + b, 0) / rels.length,
       bestRelToPar: Math.min(...rels),
       layouts: Array.from(layouts),
+      history: [...history].sort((a, b) => a.date.localeCompare(b.date)),
     }))
     .sort((a, b) => b.rounds - a.rounds);
 }
@@ -258,6 +266,7 @@ function CoursesSection({ stats }: { stats: CourseStats[] }) {
           {c.layouts.length > 0 && (
             <Text style={styles.cardSub} numberOfLines={1}>{c.layouts.join(' · ')}</Text>
           )}
+          <CourseScoreChart history={c.history} />
           <View style={styles.threeStats}>
             <ThreeStat label="Rounds" value={String(c.rounds)} />
             <ThreeStat
@@ -273,6 +282,74 @@ function CoursesSection({ stats }: { stats: CourseStats[] }) {
           </View>
         </View>
       ))}
+    </View>
+  );
+}
+
+const CHART_HALF_H = 36;
+
+function CourseScoreChart({ history }: { history: CourseRound[] }) {
+  if (history.length === 0) return null;
+
+  const values = history.map(h => h.relToPar);
+  const absMax = Math.max(...values.map(v => Math.abs(v)), 1);
+  const pixPerUnit = CHART_HALF_H / absMax;
+
+  return (
+    <View style={styles.chartWrap}>
+      {/* Y-axis label */}
+      <View style={styles.chartYAxis}>
+        <Text style={styles.chartYLabel}>+</Text>
+        <Text style={styles.chartELabel}>E</Text>
+        <Text style={styles.chartYLabel}>−</Text>
+      </View>
+
+      {/* Bars */}
+      <View style={styles.chartBarsArea}>
+        <View style={styles.chartBars}>
+          {history.map((h, i) => {
+            const v = h.relToPar;
+            const barH = v !== 0 ? Math.max(4, Math.abs(v) * pixPerUnit) : 0;
+
+            return (
+              <View key={i} style={styles.chartBarSlot}>
+                {/* Top half: under-par bars grow up from baseline */}
+                <View style={styles.chartTopHalf}>
+                  {v < 0 && (
+                    <View style={[styles.chartBarUnder, { height: barH }]} />
+                  )}
+                </View>
+
+                {/* Baseline */}
+                <View style={[styles.chartBaseline, v === 0 && styles.chartBaselineEven]} />
+
+                {/* Bottom half: over-par bars grow down from baseline */}
+                <View style={styles.chartBottomHalf}>
+                  {v > 0 && (
+                    <View style={[styles.chartBarOver, { height: barH }]} />
+                  )}
+                  {v === 0 && (
+                    <View style={styles.chartBarEven} />
+                  )}
+                </View>
+              </View>
+            );
+          })}
+        </View>
+
+        {/* Score labels below bars */}
+        <View style={styles.chartLabels}>
+          {history.map((h, i) => (
+            <Text
+              key={i}
+              style={[styles.chartLabel, { color: relColor(h.relToPar) }]}
+              numberOfLines={1}
+            >
+              {h.relToPar === 0 ? 'E' : h.relToPar > 0 ? `+${h.relToPar}` : `${h.relToPar}`}
+            </Text>
+          ))}
+        </View>
+      </View>
     </View>
   );
 }
@@ -584,4 +661,58 @@ const styles = StyleSheet.create({
   emptyIcon: { fontSize: 40 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: '#fff' },
   emptySub: { fontSize: 13, color: '#8fb89a', textAlign: 'center', paddingHorizontal: 24 },
+
+  // Course score chart
+  chartWrap: {
+    flexDirection: 'row',
+    gap: 6,
+    marginVertical: 4,
+  },
+  chartYAxis: {
+    width: 14,
+    height: CHART_HALF_H * 2 + 1,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 2,
+  },
+  chartYLabel: { fontSize: 9, color: '#4a7a5a', fontWeight: '700' },
+  chartELabel: { fontSize: 9, color: '#4a7a5a', fontWeight: '700' },
+  chartBarsArea: { flex: 1, gap: 3 },
+  chartBars: {
+    flexDirection: 'row',
+    height: CHART_HALF_H * 2 + 1,
+  },
+  chartBarSlot: { flex: 1, paddingHorizontal: 1 },
+  chartTopHalf: {
+    height: CHART_HALF_H,
+    justifyContent: 'flex-end',
+  },
+  chartBaseline: { height: 1, backgroundColor: '#2d5a3d' },
+  chartBaselineEven: { backgroundColor: '#8fb89a' },
+  chartBottomHalf: { height: CHART_HALF_H },
+  chartBarUnder: {
+    width: '100%',
+    backgroundColor: '#3b82f6',
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
+  },
+  chartBarOver: {
+    width: '100%',
+    backgroundColor: '#f97316',
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
+  },
+  chartBarEven: {
+    width: '100%',
+    height: 3,
+    backgroundColor: '#8fb89a',
+    borderRadius: 2,
+  },
+  chartLabels: { flexDirection: 'row' },
+  chartLabel: {
+    flex: 1,
+    fontSize: 9,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
 });
