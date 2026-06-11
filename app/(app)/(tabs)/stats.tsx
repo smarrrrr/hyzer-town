@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity,
+  View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Pressable,
 } from 'react-native';
 import { useAuth } from '@/lib/auth';
 import { getRoundsImportedBy, getUserProfile } from '@/lib/rounds';
@@ -13,6 +13,8 @@ type Section = 'courses' | 'h2h' | 'scoring';
 interface CourseRound {
   date: string;
   relToPar: number;
+  total: number;
+  roundRating: number | null;
 }
 
 interface CourseStats {
@@ -51,6 +53,12 @@ function fmtRel(n: number, decimals = 0): string {
   return v > 0 ? `+${v}` : `${v}`;
 }
 
+function fmtDate(dateStr: string): string {
+  const d = new Date(dateStr.split(' ')[0]);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 function relColor(n: number): string {
   if (n < 0) return '#3b82f6';
   if (n > 0) return '#f97316';
@@ -65,7 +73,7 @@ function computeCourseStats(rounds: Round[], udiscNames: string[]): CourseStats[
     const existing = map.get(round.courseName) ?? { rels: [], layouts: new Set<string>(), history: [] };
     existing.rels.push(me.relativeToPar);
     existing.layouts.add(round.layoutName);
-    existing.history.push({ date: round.startDate, relToPar: me.relativeToPar });
+    existing.history.push({ date: round.startDate, relToPar: me.relativeToPar, total: me.total, roundRating: me.roundRating });
     map.set(round.courseName, existing);
   }
   return Array.from(map.entries())
@@ -289,65 +297,94 @@ function CoursesSection({ stats }: { stats: CourseStats[] }) {
 const CHART_HALF_H = 36;
 
 function CourseScoreChart({ history }: { history: CourseRound[] }) {
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
+
   if (history.length === 0) return null;
 
   const values = history.map(h => h.relToPar);
   const absMax = Math.max(...values.map(v => Math.abs(v)), 1);
   const pixPerUnit = CHART_HALF_H / absMax;
+  const active = activeIdx != null ? history[activeIdx] : null;
 
   return (
-    <View style={styles.chartWrap}>
-      {/* Y-axis label */}
-      <View style={styles.chartYAxis}>
-        <Text style={styles.chartYLabel}>+</Text>
-        <Text style={styles.chartELabel}>E</Text>
-        <Text style={styles.chartYLabel}>−</Text>
+    <View style={styles.chartContainer}>
+      {/* Detail strip — shows round info on hover/press, round count otherwise */}
+      <View style={styles.chartDetailStrip}>
+        {active ? (
+          <View style={styles.chartDetailContent}>
+            <Text style={styles.chartDetailDate}>{fmtDate(active.date)}</Text>
+            <Text style={[styles.chartDetailScore, { color: relColor(active.relToPar) }]}>
+              {fmtRel(active.relToPar)} ({active.total})
+            </Text>
+            {active.roundRating != null && (
+              <View style={styles.chartDetailRating}>
+                <Text style={styles.chartDetailRatingText}>✦{active.roundRating}</Text>
+              </View>
+            )}
+          </View>
+        ) : (
+          <Text style={styles.chartDetailHint}>
+            {history.length === 1 ? '1 round' : `${history.length} rounds · tap a bar`}
+          </Text>
+        )}
       </View>
 
-      {/* Bars */}
-      <View style={styles.chartBarsArea}>
-        <View style={styles.chartBars}>
-          {history.map((h, i) => {
-            const v = h.relToPar;
-            const barH = v !== 0 ? Math.max(4, Math.abs(v) * pixPerUnit) : 0;
-
-            return (
-              <View key={i} style={styles.chartBarSlot}>
-                {/* Top half: under-par bars grow up from baseline */}
-                <View style={styles.chartTopHalf}>
-                  {v < 0 && (
-                    <View style={[styles.chartBarUnder, { height: barH }]} />
-                  )}
-                </View>
-
-                {/* Baseline */}
-                <View style={[styles.chartBaseline, v === 0 && styles.chartBaselineEven]} />
-
-                {/* Bottom half: over-par bars grow down from baseline */}
-                <View style={styles.chartBottomHalf}>
-                  {v > 0 && (
-                    <View style={[styles.chartBarOver, { height: barH }]} />
-                  )}
-                  {v === 0 && (
-                    <View style={styles.chartBarEven} />
-                  )}
-                </View>
-              </View>
-            );
-          })}
+      {/* Y-axis + bars */}
+      <View style={styles.chartWrap}>
+        <View style={styles.chartYAxis}>
+          <Text style={styles.chartYLabel}>+</Text>
+          <Text style={styles.chartELabel}>E</Text>
+          <Text style={styles.chartYLabel}>−</Text>
         </View>
 
-        {/* Score labels below bars */}
-        <View style={styles.chartLabels}>
-          {history.map((h, i) => (
-            <Text
-              key={i}
-              style={[styles.chartLabel, { color: relColor(h.relToPar) }]}
-              numberOfLines={1}
-            >
-              {h.relToPar === 0 ? 'E' : h.relToPar > 0 ? `+${h.relToPar}` : `${h.relToPar}`}
-            </Text>
-          ))}
+        <View style={styles.chartBarsArea}>
+          <View style={styles.chartBars}>
+            {history.map((h, i) => {
+              const v = h.relToPar;
+              const barH = v !== 0 ? Math.max(4, Math.abs(v) * pixPerUnit) : 0;
+              const isActive = i === activeIdx;
+
+              return (
+                <Pressable
+                  key={i}
+                  style={[styles.chartBarSlot, isActive && styles.chartBarSlotActive]}
+                  onHoverIn={() => setActiveIdx(i)}
+                  onHoverOut={() => setActiveIdx(null)}
+                  onPressIn={() => setActiveIdx(i)}
+                  onPressOut={() => setActiveIdx(null)}
+                >
+                  <View style={styles.chartTopHalf}>
+                    {v < 0 && (
+                      <View style={[styles.chartBarUnder, { height: barH }]} />
+                    )}
+                  </View>
+                  <View style={[styles.chartBaseline, v === 0 && styles.chartBaselineEven]} />
+                  <View style={styles.chartBottomHalf}>
+                    {v > 0 && (
+                      <View style={[styles.chartBarOver, { height: barH }]} />
+                    )}
+                    {v === 0 && <View style={styles.chartBarEven} />}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={styles.chartLabels}>
+            {history.map((h, i) => (
+              <Text
+                key={i}
+                style={[
+                  styles.chartLabel,
+                  { color: relColor(h.relToPar) },
+                  i === activeIdx && styles.chartLabelActive,
+                ]}
+                numberOfLines={1}
+              >
+                {h.relToPar === 0 ? 'E' : h.relToPar > 0 ? `+${h.relToPar}` : `${h.relToPar}`}
+              </Text>
+            ))}
+          </View>
         </View>
       </View>
     </View>
@@ -663,6 +700,29 @@ const styles = StyleSheet.create({
   emptySub: { fontSize: 13, color: '#8fb89a', textAlign: 'center', paddingHorizontal: 24 },
 
   // Course score chart
+  chartContainer: { gap: 6, marginVertical: 4 },
+
+  // Detail strip (hover/press tooltip)
+  chartDetailStrip: {
+    height: 26,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f2419',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+  },
+  chartDetailContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  chartDetailDate: { color: '#8fb89a', fontSize: 12 },
+  chartDetailScore: { fontSize: 13, fontWeight: '700' },
+  chartDetailRating: {
+    backgroundColor: '#0a1f3a',
+    borderRadius: 20,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  chartDetailRatingText: { color: '#93c5fd', fontSize: 11, fontWeight: '700' },
+  chartDetailHint: { color: '#4a7a5a', fontSize: 12 },
+
   chartWrap: {
     flexDirection: 'row',
     gap: 6,
@@ -683,6 +743,7 @@ const styles = StyleSheet.create({
     height: CHART_HALF_H * 2 + 1,
   },
   chartBarSlot: { flex: 1, paddingHorizontal: 1 },
+  chartBarSlotActive: { backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 3 },
   chartTopHalf: {
     height: CHART_HALF_H,
     justifyContent: 'flex-end',
@@ -715,4 +776,5 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
+  chartLabelActive: { fontSize: 10 },
 });
