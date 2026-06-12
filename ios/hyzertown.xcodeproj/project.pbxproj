@@ -16,6 +16,8 @@
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 		EE000005000000000000AAA5 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE000001000000000000AAA1 /* ShareViewController.swift */; };
+		EE000020000000000000AAC0 /* SharedStorageModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE000021000000000000AAC1 /* SharedStorageModule.swift */; };
+		EE000022000000000000AAC2 /* AppModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE000023000000000000AAC3 /* AppModulesProvider.swift */; };
 		EE000011000000000000AAB1 /* HyzerTownShare.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = EE000004000000000000AAA4 /* HyzerTownShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -34,6 +36,8 @@
 		F11748442D0722820044C1D9 /* hyzertown-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "hyzertown-Bridging-Header.h"; path = "hyzertown/hyzertown-Bridging-Header.h"; sourceTree = "<group>"; };
 		F2707616BEE7C6C23B6AC475 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-hyzertown/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		F7CE2F9C1034C2A510C81714 /* libPods-hyzertown.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-hyzertown.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		EE000021000000000000AAC1 /* SharedStorageModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SharedStorageModule.swift; path = hyzertown/SharedStorageModule.swift; sourceTree = "<group>"; };
+		EE000023000000000000AAC3 /* AppModulesProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppModulesProvider.swift; path = hyzertown/AppModulesProvider.swift; sourceTree = "<group>"; };
 		EE000001000000000000AAA1 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		EE000002000000000000AAA2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		EE000003000000000000AAA3 /* HyzerTownShare.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HyzerTownShare.entitlements; sourceTree = "<group>"; };
@@ -97,6 +101,8 @@
 			isa = PBXGroup;
 			children = (
 				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
+				EE000021000000000000AAC1 /* SharedStorageModule.swift */,
+				EE000023000000000000AAC3 /* AppModulesProvider.swift */,
 				F11748442D0722820044C1D9 /* hyzertown-Bridging-Header.h */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
@@ -433,6 +439,8 @@
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
 				4406EF3EB0078732151E10BF /* ExpoModulesProvider.swift in Sources */,
+				EE000020000000000000AAC0 /* SharedStorageModule.swift in Sources */,
+				EE000022000000000000AAC2 /* AppModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

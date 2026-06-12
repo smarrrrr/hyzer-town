@@ -25,7 +25,6 @@ prepare_react_native_project!
 
 target 'hyzertown' do
   use_expo_modules!
-  pod 'SharedStorage', :path => '../modules/shared-storage'
 
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
     config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
