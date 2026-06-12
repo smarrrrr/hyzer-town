@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -31,15 +31,39 @@ interface RoundItem {
 interface Props {
   visible: boolean;
   onClose: () => void;
+  /** Pre-loaded CSV string from the iOS Share Extension — skips the file picker step */
+  initialCSV?: string | null;
 }
 
 type Step = 'pick' | 'review' | 'importing' | 'done';
 
-export default function ImportModal({ visible, onClose }: Props) {
+export default function ImportModal({ visible, onClose, initialCSV }: Props) {
   const { user } = useAuth();
   const [step, setStep] = useState<Step>('pick');
   const [items, setItems] = useState<RoundItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // When opened with a pre-loaded CSV (from the Share Extension), skip the file picker
+  useEffect(() => {
+    if (!visible || !initialCSV || !user) return;
+    let cancelled = false;
+    const load = async () => {
+      const rounds = parseUDiscCSV(initialCSV);
+      if (!rounds.length) { setError('No rounds found in the shared CSV.'); return; }
+      const resolved = await Promise.all(
+        rounds.map(async (round): Promise<RoundItem> => {
+          const existing = await getRoundById(round.id);
+          const alreadyImported = existing?.importedBy?.includes(user.uid) ?? false;
+          return { round, status: alreadyImported ? 'already-imported' : 'pending', action: alreadyImported ? 'skip' : 'import' };
+        })
+      );
+      if (cancelled) return;
+      setItems(resolved);
+      setStep('review');
+    };
+    load().catch(e => { if (!cancelled) setError(e?.message ?? 'Failed to parse CSV'); });
+    return () => { cancelled = true; };
+  }, [visible, initialCSV, user]);
 
   const reset = () => {
     setStep('pick');

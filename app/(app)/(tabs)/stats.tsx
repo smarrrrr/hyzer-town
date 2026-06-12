@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Pressable,
+  View, Text, StyleSheet, ScrollView, Modal, ActivityIndicator, TouchableOpacity, Pressable,
 } from 'react-native';
 import { useAuth } from '@/lib/auth';
 import { getRoundsImportedBy, getUserProfile } from '@/lib/rounds';
@@ -9,6 +9,8 @@ import type { Round, PlayerScore } from '@/lib/types';
 // --- types ---
 
 type Section = 'courses' | 'h2h' | 'scoring';
+type DateFilter = 'all' | '1m' | '3m' | '6m' | '1y' | 'ytd' | 'custom';
+interface MonthYear { month: number; year: number; }
 
 interface CourseRound {
   date: string;
@@ -141,6 +143,61 @@ function computeScoring(rounds: Round[], udiscNames: string[]): ScoringBreakdown
   return { totalHoles, eagles, birdies, pars, bogeys, doubles };
 }
 
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function getFilteredRounds(rounds: Round[], filter: DateFilter, from: MonthYear, to: MonthYear): Round[] {
+  if (filter === 'all') return rounds;
+  const now = new Date();
+  let fromDate: Date;
+  let toDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+
+  switch (filter) {
+    case '1m':  fromDate = new Date(now); fromDate.setMonth(fromDate.getMonth() - 1); break;
+    case '3m':  fromDate = new Date(now); fromDate.setMonth(fromDate.getMonth() - 3); break;
+    case '6m':  fromDate = new Date(now); fromDate.setMonth(fromDate.getMonth() - 6); break;
+    case '1y':  fromDate = new Date(now); fromDate.setFullYear(fromDate.getFullYear() - 1); break;
+    case 'ytd': fromDate = new Date(now.getFullYear(), 0, 1); break;
+    case 'custom':
+      fromDate = new Date(from.year, from.month, 1);
+      toDate   = new Date(to.year, to.month + 1, 0, 23, 59, 59);
+      break;
+    default: return rounds;
+  }
+
+  return rounds.filter(r => {
+    const d = new Date(r.startDate.split(' ')[0]);
+    return d >= fromDate && d <= toDate;
+  });
+}
+
+function MonthPicker({ value, onChange, label }: { value: MonthYear; onChange: (v: MonthYear) => void; label: string }) {
+  return (
+    <View style={styles.mpWrap}>
+      <Text style={styles.mpLabel}>{label}</Text>
+      <View style={styles.mpMonths}>
+        {MONTHS_SHORT.map((m, i) => (
+          <TouchableOpacity
+            key={m}
+            style={[styles.mpMonth, value.month === i && styles.mpMonthActive]}
+            onPress={() => onChange({ ...value, month: i })}
+          >
+            <Text style={[styles.mpMonthText, value.month === i && styles.mpMonthTextActive]}>{m}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <View style={styles.mpYearRow}>
+        <TouchableOpacity style={styles.mpYearBtn} onPress={() => onChange({ ...value, year: value.year - 1 })}>
+          <Text style={styles.mpYearArrow}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.mpYearText}>{value.year}</Text>
+        <TouchableOpacity style={styles.mpYearBtn} onPress={() => onChange({ ...value, year: value.year + 1 })}>
+          <Text style={styles.mpYearArrow}>›</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 // --- screen ---
 
 export default function StatsScreen() {
@@ -149,6 +206,13 @@ export default function StatsScreen() {
   const [udiscNames, setUdiscNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [section, setSection] = useState<Section>('courses');
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all');
+  const nowForInit = new Date();
+  const [customFrom, setCustomFrom] = useState<MonthYear>({ month: nowForInit.getMonth(), year: nowForInit.getFullYear() - 1 });
+  const [customTo, setCustomTo]     = useState<MonthYear>({ month: nowForInit.getMonth(), year: nowForInit.getFullYear() });
+  const [customOpen, setCustomOpen] = useState(false);
+  const [tempFrom, setTempFrom] = useState<MonthYear>(customFrom);
+  const [tempTo, setTempTo]     = useState<MonthYear>(customTo);
 
   useEffect(() => {
     if (!user) return;
@@ -163,9 +227,14 @@ export default function StatsScreen() {
     }).finally(() => setLoading(false));
   }, [user]);
 
+  const filteredRounds = useMemo(
+    () => getFilteredRounds(rounds, dateFilter, customFrom, customTo),
+    [rounds, dateFilter, customFrom, customTo],
+  );
+
   const myRounds = useMemo(
-    () => rounds.filter(r => r.players.some(p => udiscNames.includes(p.name))),
-    [rounds, udiscNames],
+    () => filteredRounds.filter(r => r.players.some(p => udiscNames.includes(p.name))),
+    [filteredRounds, udiscNames],
   );
 
   const myScores = useMemo(() =>
@@ -181,9 +250,9 @@ export default function StatsScreen() {
     : null;
   const bestScore = myScores.length ? Math.min(...myScores) : null;
 
-  const courseStats = useMemo(() => computeCourseStats(rounds, udiscNames), [rounds, udiscNames]);
-  const h2hStats = useMemo(() => computeH2H(rounds, udiscNames), [rounds, udiscNames]);
-  const scoringStats = useMemo(() => computeScoring(rounds, udiscNames), [rounds, udiscNames]);
+  const courseStats = useMemo(() => computeCourseStats(filteredRounds, udiscNames), [filteredRounds, udiscNames]);
+  const h2hStats    = useMemo(() => computeH2H(filteredRounds, udiscNames),         [filteredRounds, udiscNames]);
+  const scoringStats = useMemo(() => computeScoring(filteredRounds, udiscNames),    [filteredRounds, udiscNames]);
 
   if (loading) {
     return (
@@ -202,8 +271,50 @@ export default function StatsScreen() {
     { key: 'scoring', label: 'Scoring' },
   ];
 
+  const DATE_FILTERS: { key: DateFilter; label: string }[] = [
+    { key: 'all',    label: 'All time' },
+    { key: '1m',     label: 'Last month' },
+    { key: '3m',     label: '3 months' },
+    { key: '6m',     label: '6 months' },
+    { key: '1y',     label: '1 year' },
+    { key: 'ytd',    label: 'Year to date' },
+    {
+      key: 'custom',
+      label: dateFilter === 'custom'
+        ? `${MONTHS_SHORT[customFrom.month]} ${customFrom.year} – ${MONTHS_SHORT[customTo.month]} ${customTo.year}`
+        : 'Custom…',
+    },
+  ];
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Custom date range modal */}
+      <Modal visible={customOpen} transparent animationType="fade" onRequestClose={() => setCustomOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Custom Date Range</Text>
+            <MonthPicker label="From" value={tempFrom} onChange={setTempFrom} />
+            <MonthPicker label="To"   value={tempTo}   onChange={setTempTo} />
+            <View style={styles.modalBtns}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setCustomOpen(false)}>
+                <Text style={styles.modalBtnCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalBtnApply}
+                onPress={() => {
+                  setCustomFrom(tempFrom);
+                  setCustomTo(tempTo);
+                  setDateFilter('custom');
+                  setCustomOpen(false);
+                }}
+              >
+                <Text style={styles.modalBtnApplyText}>Apply</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Summary strip */}
       <View style={styles.summaryRow}>
         {[
@@ -220,6 +331,29 @@ export default function StatsScreen() {
           </View>
         ))}
       </View>
+
+      {/* Date filter chips */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+        {DATE_FILTERS.map(f => (
+          <TouchableOpacity
+            key={f.key}
+            style={[styles.filterChip, dateFilter === f.key && styles.filterChipActive]}
+            onPress={() => {
+              if (f.key === 'custom') {
+                setTempFrom(customFrom);
+                setTempTo(customTo);
+                setCustomOpen(true);
+              } else {
+                setDateFilter(f.key);
+              }
+            }}
+          >
+            <Text style={[styles.filterChipText, dateFilter === f.key && styles.filterChipTextActive]}>
+              {f.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
       {/* Segment control */}
       <View style={styles.segRow}>
@@ -295,96 +429,188 @@ function CoursesSection({ stats }: { stats: CourseStats[] }) {
 }
 
 const CHART_HALF_H = 36;
+const TOOLTIP_W = 152;
+const MIN_BAR_SLOT_W = 11;
+const Y_OFFSET = 20; // y-axis width (14) + gap (6)
+
+/** Moving-average trend points, sampled to at most maxPts for render performance. */
+function buildTrendPoints(
+  history: CourseRound[],
+  slotW: number,
+  pixPerUnit: number,
+  maxPts = 80,
+): Array<{ x: number; y: number }> {
+  if (history.length < 2) return [];
+  const raw = history.map(h => h.relToPar);
+  const win = Math.max(3, Math.min(9, Math.floor(history.length / 8)));
+  const smoothed = raw.map((_, i) => {
+    const s = Math.max(0, i - Math.floor(win / 2));
+    const e = Math.min(raw.length, s + win);
+    const slice = raw.slice(s, e);
+    return slice.reduce((a, b) => a + b, 0) / slice.length;
+  });
+  const step = Math.max(1, Math.ceil(history.length / maxPts));
+  return smoothed
+    .map((v, i) => ({ x: (i + 0.5) * slotW, y: CHART_HALF_H + v * pixPerUnit, keep: i % step === 0 || i === smoothed.length - 1 }))
+    .filter(p => p.keep)
+    .map(({ x, y }) => ({ x, y }));
+}
 
 function CourseScoreChart({ history }: { history: CourseRound[] }) {
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
+  const [containerW, setContainerW] = useState(0);
+  const [scrollX, setScrollX] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
 
   if (history.length === 0) return null;
 
-  const values = history.map(h => h.relToPar);
-  const absMax = Math.max(...values.map(v => Math.abs(v)), 1);
+  const absMax = Math.max(...history.map(h => Math.abs(h.relToPar)), 1);
   const pixPerUnit = CHART_HALF_H / absMax;
+
+  // Total scrollable content width — at least fills the visible area
+  const contentW = containerW > 0
+    ? Math.max(history.length * MIN_BAR_SLOT_W, containerW)
+    : history.length * MIN_BAR_SLOT_W;
+  const slotW = contentW / history.length;
+
   const active = activeIdx != null ? history[activeIdx] : null;
 
+  // Trend line — recompute when slotW or pixPerUnit change (containerW drives slotW)
+  const trendPts = buildTrendPoints(history, slotW, pixPerUnit);
+
+  // Bar center in visible coordinates (accounts for scroll offset)
+  const barVisibleX = activeIdx != null ? (activeIdx + 0.5) * slotW - scrollX : 0;
+  const tooltipLeft = containerW > 0
+    ? Math.max(0, Math.min(barVisibleX - TOOLTIP_W / 2, containerW - TOOLTIP_W))
+    : 0;
+  const caretLeft = Math.max(8, Math.min(barVisibleX - tooltipLeft - 5, TOOLTIP_W - 18));
+
+  // Scroll to the most recent round (right edge) on first layout
+  useEffect(() => {
+    if (containerW > 0 && contentW > containerW) {
+      scrollRef.current?.scrollToEnd({ animated: false });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [containerW > 0]);
+
   return (
-    <View style={styles.chartContainer}>
-      {/* Detail strip — shows round info on hover/press, round count otherwise */}
-      <View style={styles.chartDetailStrip}>
-        {active ? (
-          <View style={styles.chartDetailContent}>
-            <Text style={styles.chartDetailDate}>{fmtDate(active.date)}</Text>
-            <Text style={[styles.chartDetailScore, { color: relColor(active.relToPar) }]}>
-              {fmtRel(active.relToPar)} ({active.total})
-            </Text>
-            {active.roundRating != null && (
-              <View style={styles.chartDetailRating}>
-                <Text style={styles.chartDetailRatingText}>✦{active.roundRating}</Text>
-              </View>
-            )}
+    <View>
+      {/* Reserved zone above the bars — tooltip floats here, caret points down */}
+      <View style={styles.chartTooltipZone}>
+        {active && containerW > 0 ? (
+          <View
+            pointerEvents="none"
+            style={[styles.chartTooltip, { left: Y_OFFSET + tooltipLeft }]}
+          >
+            <Text style={styles.chartTooltipDate}>{fmtDate(active.date)}</Text>
+            <View style={styles.chartTooltipScoreRow}>
+              <Text style={[styles.chartTooltipScore, { color: relColor(active.relToPar) }]}>
+                {fmtRel(active.relToPar)} ({active.total})
+              </Text>
+              {active.roundRating != null && (
+                <View style={styles.chartTooltipRatingPill}>
+                  <Text style={styles.chartTooltipRatingText}>✦{active.roundRating}</Text>
+                </View>
+              )}
+            </View>
+            <View style={[styles.chartTooltipCaret, { left: caretLeft }]} />
           </View>
         ) : (
-          <Text style={styles.chartDetailHint}>
-            {history.length === 1 ? '1 round' : `${history.length} rounds · tap a bar`}
+          <Text style={styles.chartHint}>
+            {`${history.length} round${history.length !== 1 ? 's' : ''}`}
           </Text>
         )}
       </View>
 
-      {/* Y-axis + bars */}
+      {/* Y-axis + scrollable bars */}
       <View style={styles.chartWrap}>
         <View style={styles.chartYAxis}>
-          <Text style={styles.chartYLabel}>+</Text>
-          <Text style={styles.chartELabel}>E</Text>
           <Text style={styles.chartYLabel}>−</Text>
+          <Text style={styles.chartELabel}>E</Text>
+          <Text style={styles.chartYLabel}>+</Text>
         </View>
 
-        <View style={styles.chartBarsArea}>
-          <View style={styles.chartBars}>
-            {history.map((h, i) => {
-              const v = h.relToPar;
-              const barH = v !== 0 ? Math.max(4, Math.abs(v) * pixPerUnit) : 0;
-              const isActive = i === activeIdx;
+        {/* Outer view measures the visible width for tooltip positioning */}
+        <View
+          style={styles.chartBarsArea}
+          onLayout={e => setContainerW(e.nativeEvent.layout.width)}
+        >
+          <ScrollView
+            ref={scrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={e => setScrollX(e.nativeEvent.contentOffset.x)}
+            style={{ flex: 1 }}
+          >
+            {/* Single child so bars + labels stack vertically inside the horizontal scroll */}
+            <View style={{ width: contentW, gap: 3 }}>
+              <View style={[styles.chartBars, { width: contentW }]}>
+                {history.map((h, i) => {
+                  const v = h.relToPar;
+                  const barH = v !== 0 ? Math.max(4, Math.abs(v) * pixPerUnit) : 0;
+                  const isActive = i === activeIdx;
+                  return (
+                    <Pressable
+                      key={i}
+                      style={[styles.chartBarSlot, { width: slotW }, isActive && styles.chartBarSlotActive]}
+                      onHoverIn={() => setActiveIdx(i)}
+                      onHoverOut={() => setActiveIdx(null)}
+                      onPressIn={() => setActiveIdx(i)}
+                      onPressOut={() => setActiveIdx(null)}
+                    >
+                      <View style={styles.chartTopHalf}>
+                        {v < 0 && <View style={[styles.chartBarUnder, { height: barH }]} />}
+                      </View>
+                      <View style={[styles.chartBaseline, v === 0 && styles.chartBaselineEven]} />
+                      <View style={styles.chartBottomHalf}>
+                        {v > 0 && <View style={[styles.chartBarOver, { height: barH }]} />}
+                        {v === 0 && <View style={styles.chartBarEven} />}
+                      </View>
+                    </Pressable>
+                  );
+                })}
 
-              return (
-                <Pressable
-                  key={i}
-                  style={[styles.chartBarSlot, isActive && styles.chartBarSlotActive]}
-                  onHoverIn={() => setActiveIdx(i)}
-                  onHoverOut={() => setActiveIdx(null)}
-                  onPressIn={() => setActiveIdx(i)}
-                  onPressOut={() => setActiveIdx(null)}
-                >
-                  <View style={styles.chartTopHalf}>
-                    {v < 0 && (
-                      <View style={[styles.chartBarUnder, { height: barH }]} />
-                    )}
-                  </View>
-                  <View style={[styles.chartBaseline, v === 0 && styles.chartBaselineEven]} />
-                  <View style={styles.chartBottomHalf}>
-                    {v > 0 && (
-                      <View style={[styles.chartBarOver, { height: barH }]} />
-                    )}
-                    {v === 0 && <View style={styles.chartBarEven} />}
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
+                {/* Trend line — moving-average path rendered as rotated segments */}
+                {trendPts.length >= 2 && trendPts.slice(0, -1).map((p1, i) => {
+                  const p2 = trendPts[i + 1];
+                  const dx = p2.x - p1.x;
+                  const dy = p2.y - p1.y;
+                  const len = Math.sqrt(dx * dx + dy * dy);
+                  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                  return (
+                    <View
+                      key={`t${i}`}
+                      pointerEvents="none"
+                      style={{
+                        position: 'absolute',
+                        width: len,
+                        height: 2,
+                        backgroundColor: 'rgba(255,255,255,0.55)',
+                        borderRadius: 1,
+                        left: (p1.x + p2.x) / 2 - len / 2,
+                        top: (p1.y + p2.y) / 2 - 1,
+                        transform: [{ rotate: `${angle}deg` }],
+                      }}
+                    />
+                  );
+                })}
+              </View>
 
-          <View style={styles.chartLabels}>
-            {history.map((h, i) => (
-              <Text
-                key={i}
-                style={[
-                  styles.chartLabel,
-                  { color: relColor(h.relToPar) },
-                  i === activeIdx && styles.chartLabelActive,
-                ]}
-                numberOfLines={1}
-              >
-                {h.relToPar === 0 ? 'E' : h.relToPar > 0 ? `+${h.relToPar}` : `${h.relToPar}`}
-              </Text>
-            ))}
-          </View>
+              <View style={[styles.chartLabels, { width: contentW }]}>
+                {history.map((h, i) => (
+                  <Text
+                    key={i}
+                    style={[styles.chartLabel, { width: slotW, color: relColor(h.relToPar) },
+                      i === activeIdx && styles.chartLabelActive]}
+                    numberOfLines={1}
+                  >
+                    {h.relToPar === 0 ? 'E' : h.relToPar > 0 ? `+${h.relToPar}` : `${h.relToPar}`}
+                  </Text>
+                ))}
+              </View>
+            </View>
+          </ScrollView>
         </View>
       </View>
     </View>
@@ -700,33 +926,18 @@ const styles = StyleSheet.create({
   emptySub: { fontSize: 13, color: '#8fb89a', textAlign: 'center', paddingHorizontal: 24 },
 
   // Course score chart
-  chartContainer: { gap: 6, marginVertical: 4 },
-
-  // Detail strip (hover/press tooltip)
-  chartDetailStrip: {
-    height: 26,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0f2419',
-    borderRadius: 8,
-    paddingHorizontal: 10,
+  // Fixed-height zone above the bars — tooltip floats inside, caret hangs below into the chart
+  chartTooltipZone: {
+    height: 56,
+    overflow: 'visible' as any,
+    justifyContent: 'flex-end',
+    paddingBottom: 6,
   },
-  chartDetailContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  chartDetailDate: { color: '#8fb89a', fontSize: 12 },
-  chartDetailScore: { fontSize: 13, fontWeight: '700' },
-  chartDetailRating: {
-    backgroundColor: '#0a1f3a',
-    borderRadius: 20,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-  },
-  chartDetailRatingText: { color: '#93c5fd', fontSize: 11, fontWeight: '700' },
-  chartDetailHint: { color: '#4a7a5a', fontSize: 12 },
-
+  chartHint: { color: '#4a7a5a', fontSize: 11, paddingLeft: 20 },
   chartWrap: {
     flexDirection: 'row',
     gap: 6,
-    marginVertical: 4,
+    marginBottom: 4,
   },
   chartYAxis: {
     width: 14,
@@ -742,7 +953,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     height: CHART_HALF_H * 2 + 1,
   },
-  chartBarSlot: { flex: 1, paddingHorizontal: 1 },
+  chartBarSlot: { paddingHorizontal: 1 },
   chartBarSlotActive: { backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 3 },
   chartTopHalf: {
     height: CHART_HALF_H,
@@ -771,10 +982,109 @@ const styles = StyleSheet.create({
   },
   chartLabels: { flexDirection: 'row' },
   chartLabel: {
-    flex: 1,
     fontSize: 9,
     fontWeight: '700',
     textAlign: 'center',
   },
   chartLabelActive: { fontSize: 10 },
+
+  // Floating bar tooltip
+  chartTooltip: {
+    position: 'absolute',
+    bottom: 0,
+    width: TOOLTIP_W,
+    backgroundColor: '#142b1e',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2d5a3d',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    gap: 3,
+  },
+  chartTooltipDate: { color: '#8fb89a', fontSize: 11 },
+  chartTooltipScoreRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  chartTooltipScore: { fontSize: 14, fontWeight: '700' },
+  chartTooltipRatingPill: {
+    backgroundColor: '#0a1f3a',
+    borderRadius: 20,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    marginLeft: 'auto' as any,
+  },
+  chartTooltipRatingText: { color: '#93c5fd', fontSize: 11, fontWeight: '700' },
+  // downward-pointing triangle via border trick
+  // Date filter chips
+  filterRow: { flexDirection: 'row', gap: 8, paddingVertical: 2 },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: '#1e3a2a',
+    borderWidth: 1,
+    borderColor: '#2d5a3d',
+  },
+  filterChipActive: { backgroundColor: '#3db56b', borderColor: '#3db56b' },
+  filterChipText: { fontSize: 13, fontWeight: '600', color: '#8fb89a' },
+  filterChipTextActive: { color: '#fff' },
+
+  // Custom date range modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#142b1e',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2d5a3d',
+    padding: 20,
+    gap: 16,
+  },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: '#fff', textAlign: 'center' },
+  modalBtns: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  modalBtnCancel: {
+    flex: 1, paddingVertical: 12, borderRadius: 10,
+    backgroundColor: '#1e3a2a', borderWidth: 1, borderColor: '#2d5a3d',
+    alignItems: 'center',
+  },
+  modalBtnCancelText: { color: '#8fb89a', fontWeight: '600', fontSize: 15 },
+  modalBtnApply: {
+    flex: 1, paddingVertical: 12, borderRadius: 10,
+    backgroundColor: '#3db56b', alignItems: 'center',
+  },
+  modalBtnApplyText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+
+  // MonthPicker
+  mpWrap: { gap: 8 },
+  mpLabel: { fontSize: 12, fontWeight: '700', color: '#8fb89a' },
+  mpMonths: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  mpMonth: {
+    paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8,
+    backgroundColor: '#1e3a2a', borderWidth: 1, borderColor: '#2d5a3d',
+  },
+  mpMonthActive: { backgroundColor: '#3db56b', borderColor: '#3db56b' },
+  mpMonthText: { fontSize: 12, fontWeight: '600', color: '#8fb89a' },
+  mpMonthTextActive: { color: '#fff' },
+  mpYearRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  mpYearBtn: { paddingHorizontal: 10, paddingVertical: 6 },
+  mpYearArrow: { fontSize: 20, color: '#3db56b', fontWeight: '700' },
+  mpYearText: { fontSize: 16, fontWeight: '700', color: '#fff', minWidth: 48, textAlign: 'center' },
+
+  chartTooltipCaret: {
+    position: 'absolute',
+    bottom: -7,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 7,
+    borderLeftColor: 'transparent' as any,
+    borderRightColor: 'transparent' as any,
+    borderTopColor: '#2d5a3d',
+  },
 });

@@ -1,0 +1,6 @@
+{
+  "name": "shared-storage",
+  "version": "1.0.0",
+  "description": "Local Expo module for reading the App Group shared container",
+  "main": "src/index.ts"
+}
