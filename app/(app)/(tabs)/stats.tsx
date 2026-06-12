@@ -47,12 +47,14 @@ interface ScoringBreakdown {
   doubles: number;
 }
 
-interface WeekBucket {
-  weekKey: string;
+interface Bucket {
+  key: string;
   label: string;
   avgRelToPar: number;
   rounds: number;
 }
+
+type Granularity = 'week' | 'month' | 'quarter' | 'year';
 
 // --- helpers ---
 
@@ -62,36 +64,69 @@ function fmtRel(n: number, decimals = 0): string {
   return v > 0 ? `+${v}` : `${v}`;
 }
 
-function getISOWeekKey(dateStr: string): string {
+function getBucketKey(dateStr: string, gran: Granularity): string {
   const d = new Date(dateStr.split(' ')[0]);
-  const day = d.getDay() || 7;
-  d.setDate(d.getDate() + 4 - day);
-  const yearStart = new Date(d.getFullYear(), 0, 1);
-  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+  switch (gran) {
+    case 'week': {
+      const day = d.getDay() || 7;
+      d.setDate(d.getDate() + 4 - day);
+      const ys = new Date(d.getFullYear(), 0, 1);
+      const wk = Math.ceil(((d.getTime() - ys.getTime()) / 86400000 + 1) / 7);
+      return `${d.getFullYear()}-W${String(wk).padStart(2, '0')}`;
+    }
+    case 'month': return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    case 'quarter': return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
+    case 'year': return `${d.getFullYear()}`;
+  }
 }
 
-function buildWeeklyBuckets(rounds: Round[], udiscNames: string[]): WeekBucket[] {
-  const map = new Map<string, { sum: number; count: number; firstDate: string }>();
+function bucketLabel(key: string, gran: Granularity): string {
+  switch (gran) {
+    case 'week': case 'month': {
+      const d = new Date(key.replace(/-W\d+/, '-01-01').replace(/-Q\d/, '-01-01'));
+      if (gran === 'month') {
+        const [y, m] = key.split('-');
+        return new Date(+y, +m - 1, 1).toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
+      }
+      return d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
+    }
+    case 'quarter': {
+      const [y, q] = key.split('-Q');
+      return `Q${q} '${y.slice(2)}`;
+    }
+    case 'year': return `'${key.slice(2)}`;
+  }
+}
+
+function buildBuckets(rounds: Round[], udiscNames: string[], gran: Granularity): Bucket[] {
+  const map = new Map<string, { sum: number; count: number }>();
   for (const r of [...rounds].sort((a, b) => a.startDate.localeCompare(b.startDate))) {
     const me = r.players.find(p => udiscNames.includes(p.name));
     if (!me || me.relativeToPar == null) continue;
-    const key = getISOWeekKey(r.startDate);
+    const key = getBucketKey(r.startDate, gran);
     const existing = map.get(key);
     if (existing) { existing.sum += me.relativeToPar; existing.count++; }
-    else { map.set(key, { sum: me.relativeToPar, count: 1, firstDate: r.startDate }); }
+    else { map.set(key, { sum: me.relativeToPar, count: 1 }); }
   }
   return Array.from(map.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, { sum, count, firstDate }]) => {
-      const d = new Date(firstDate.split(' ')[0]);
-      return {
-        weekKey: key,
-        label: d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }),
-        avgRelToPar: sum / count,
-        rounds: count,
-      };
-    });
+    .map(([key, { sum, count }]) => ({
+      key,
+      label: bucketLabel(key, gran),
+      avgRelToPar: sum / count,
+      rounds: count,
+    }));
+}
+
+const GRANS: Granularity[] = ['week', 'month', 'quarter', 'year'];
+const MIN_SLOT_W = 3;
+
+function pickBuckets(rounds: Round[], udiscNames: string[], availableW: number): Bucket[] {
+  for (const gran of GRANS) {
+    const b = buildBuckets(rounds, udiscNames, gran);
+    if (b.length * MIN_SLOT_W <= availableW) return b;
+  }
+  return buildBuckets(rounds, udiscNames, 'year');
 }
 
 function fmtDate(dateStr: string): string {
@@ -294,8 +329,6 @@ export default function StatsScreen() {
     [rounds, udiscNames],
   );
 
-  const weeklyBuckets = useMemo(() => buildWeeklyBuckets(allMyRounds, udiscNames), [allMyRounds, udiscNames]);
-
   const courseStats = useMemo(() => computeCourseStats(filteredRounds, udiscNames), [filteredRounds, udiscNames]);
   const h2hStats    = useMemo(() => computeH2H(filteredRounds, udiscNames),         [filteredRounds, udiscNames]);
   const scoringStats = useMemo(() => computeScoring(filteredRounds, udiscNames),    [filteredRounds, udiscNames]);
@@ -362,7 +395,7 @@ export default function StatsScreen() {
       </Modal>
 
       {/* All-time score history chart */}
-      {weeklyBuckets.length > 0 && <AllRoundsChart buckets={weeklyBuckets} />}
+      {allMyRounds.length > 0 && <AllRoundsChart rounds={allMyRounds} udiscNames={udiscNames} />}
 
       {/* Summary strip */}
       <View style={styles.summaryRow}>
@@ -445,37 +478,31 @@ export default function StatsScreen() {
 
 // --- sub-sections ---
 
-function AllRoundsChart({ buckets }: { buckets: WeekBucket[] }) {
+function AllRoundsChart({ rounds, udiscNames }: { rounds: Round[]; udiscNames: string[] }) {
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [containerW, setContainerW] = useState(0);
-  const [scrollX, setScrollX] = useState(0);
-  const scrollRef = useRef<ScrollView>(null);
 
-  const absMax = Math.max(...buckets.map(b => Math.abs(b.avgRelToPar)), 1);
+  const buckets = useMemo(
+    () => containerW > 0 ? pickBuckets(rounds, udiscNames, containerW) : [],
+    [rounds, udiscNames, containerW],
+  );
+
+  if (containerW > 0 && buckets.length === 0) return null;
+
+  const slotW = containerW > 0 ? containerW / buckets.length : 0;
+  const absMax = buckets.length > 0 ? Math.max(...buckets.map(b => Math.abs(b.avgRelToPar)), 1) : 1;
   const pixPerUnit = CHART_HALF_H / absMax;
-
-  const contentW = containerW > 0
-    ? Math.max(buckets.length * MIN_BAR_SLOT_W, containerW)
-    : buckets.length * MIN_BAR_SLOT_W;
-  const slotW = contentW / buckets.length;
 
   const active = activeIdx != null ? buckets[activeIdx] : null;
 
-  const trendHistory = buckets.map(b => ({ date: b.weekKey, relToPar: b.avgRelToPar, total: b.rounds, roundRating: null }));
-  const trendPts = buildTrendPoints(trendHistory, slotW, pixPerUnit);
+  const trendHistory = buckets.map(b => ({ date: b.key, relToPar: b.avgRelToPar, total: b.rounds, roundRating: null }));
+  const trendPts = slotW > 0 ? buildTrendPoints(trendHistory, slotW, pixPerUnit) : [];
 
-  const barVisibleX = activeIdx != null ? (activeIdx + 0.5) * slotW - scrollX : 0;
+  const barCenterX = activeIdx != null ? (activeIdx + 0.5) * slotW : 0;
   const tooltipLeft = containerW > 0
-    ? Math.max(0, Math.min(barVisibleX - TOOLTIP_W / 2, containerW - TOOLTIP_W))
+    ? Math.max(0, Math.min(barCenterX - TOOLTIP_W / 2, containerW - TOOLTIP_W))
     : 0;
-  const caretLeft = Math.max(8, Math.min(barVisibleX - tooltipLeft - 5, TOOLTIP_W - 18));
-
-  useEffect(() => {
-    if (containerW > 0 && contentW > containerW) {
-      scrollRef.current?.scrollToEnd({ animated: false });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [containerW > 0]);
+  const caretLeft = Math.max(8, Math.min(barCenterX - tooltipLeft - 5, TOOLTIP_W - 18));
 
   return (
     <View style={styles.card}>
@@ -493,7 +520,7 @@ function AllRoundsChart({ buckets }: { buckets: WeekBucket[] }) {
               <View style={[styles.chartTooltipCaret, { left: caretLeft }]} />
             </View>
           ) : (
-            <Text style={styles.chartHint}>{`${buckets.length} weeks · tap a bar`}</Text>
+            <Text style={styles.chartHint}>tap a bar</Text>
           )}
         </View>
 
@@ -503,59 +530,53 @@ function AllRoundsChart({ buckets }: { buckets: WeekBucket[] }) {
             <Text style={styles.chartELabel}>E</Text>
             <Text style={styles.chartYLabel}>+</Text>
           </View>
-          <View style={styles.chartBarsArea} onLayout={e => setContainerW(e.nativeEvent.layout.width)}>
-            <ScrollView
-              ref={scrollRef}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              scrollEventThrottle={16}
-              onScroll={e => setScrollX(e.nativeEvent.contentOffset.x)}
-              style={{ flex: 1 }}
-            >
-              <View style={{ width: contentW }}>
-                <View style={[styles.chartBars, { width: contentW }]}>
-                  {buckets.map((b, i) => {
-                    const v = b.avgRelToPar;
-                    const barH = v !== 0 ? Math.max(4, Math.abs(v) * pixPerUnit) : 0;
-                    const isActive = i === activeIdx;
-                    return (
-                      <Pressable
-                        key={b.weekKey}
-                        style={[styles.chartBarSlot, { width: slotW }, isActive && styles.chartBarSlotActive]}
-                        onPressIn={() => setActiveIdx(i)}
-                        onPressOut={() => setActiveIdx(null)}
-                        onHoverIn={() => setActiveIdx(i)}
-                        onHoverOut={() => setActiveIdx(null)}
-                      >
-                        <View style={styles.chartTopHalf}>
-                          {v < 0 && <View style={[styles.chartBarUnder, { height: barH }]} />}
-                        </View>
-                        <View style={[styles.chartBaseline, v === 0 && styles.chartBaselineEven]} />
-                        <View style={styles.chartBottomHalf}>
-                          {v > 0 && <View style={[styles.chartBarOver, { height: barH }]} />}
-                          {v === 0 && <View style={styles.chartBarEven} />}
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                  {trendPts.length >= 2 && trendPts.slice(0, -1).map((p1, i) => {
-                    const p2 = trendPts[i + 1];
-                    const dx = p2.x - p1.x; const dy = p2.y - p1.y;
-                    const len = Math.sqrt(dx * dx + dy * dy);
-                    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-                    return (
-                      <View key={`t${i}`} pointerEvents="none" style={{
-                        position: 'absolute', width: len, height: 2,
-                        backgroundColor: 'rgba(255,255,255,0.55)', borderRadius: 1,
-                        left: (p1.x + p2.x) / 2 - len / 2,
-                        top: (p1.y + p2.y) / 2 - 1,
-                        transform: [{ rotate: `${angle}deg` }],
-                      }} />
-                    );
-                  })}
-                </View>
+          <View
+            style={[styles.chartBarsArea, { overflow: 'hidden' }]}
+            onLayout={e => setContainerW(e.nativeEvent.layout.width)}
+          >
+            {containerW > 0 && (
+              <View style={[styles.chartBars, { width: containerW }]}>
+                {buckets.map((b, i) => {
+                  const v = b.avgRelToPar;
+                  const barH = v !== 0 ? Math.max(2, Math.abs(v) * pixPerUnit) : 0;
+                  const isActive = i === activeIdx;
+                  return (
+                    <Pressable
+                      key={b.key}
+                      style={[styles.chartBarSlot, { width: slotW }, isActive && styles.chartBarSlotActive]}
+                      onPressIn={() => setActiveIdx(i)}
+                      onPressOut={() => setActiveIdx(null)}
+                      onHoverIn={() => setActiveIdx(i)}
+                      onHoverOut={() => setActiveIdx(null)}
+                    >
+                      <View style={styles.chartTopHalf}>
+                        {v < 0 && <View style={[styles.chartBarUnder, { height: barH }]} />}
+                      </View>
+                      <View style={[styles.chartBaseline, v === 0 && styles.chartBaselineEven]} />
+                      <View style={styles.chartBottomHalf}>
+                        {v > 0 && <View style={[styles.chartBarOver, { height: barH }]} />}
+                        {v === 0 && <View style={styles.chartBarEven} />}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+                {trendPts.length >= 2 && trendPts.slice(0, -1).map((p1, i) => {
+                  const p2 = trendPts[i + 1];
+                  const dx = p2.x - p1.x; const dy = p2.y - p1.y;
+                  const len = Math.sqrt(dx * dx + dy * dy);
+                  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                  return (
+                    <View key={`t${i}`} pointerEvents="none" style={{
+                      position: 'absolute', width: len, height: 2,
+                      backgroundColor: 'rgba(255,255,255,0.55)', borderRadius: 1,
+                      left: (p1.x + p2.x) / 2 - len / 2,
+                      top: (p1.y + p2.y) / 2 - 1,
+                      transform: [{ rotate: `${angle}deg` }],
+                    }} />
+                  );
+                })}
               </View>
-            </ScrollView>
+            )}
           </View>
         </View>
       </View>
