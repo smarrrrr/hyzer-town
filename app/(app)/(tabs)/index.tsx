@@ -77,8 +77,6 @@ export default function HomeScreen() {
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3db56b" />}
     >
-      <Text style={styles.sectionTitle}>Recent Rounds</Text>
-
       {loading ? (
         <View style={styles.loadingState}>
           <ActivityIndicator color="#3db56b" />
