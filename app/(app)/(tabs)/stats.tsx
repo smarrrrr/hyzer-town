@@ -394,9 +394,6 @@ export default function StatsScreen() {
         </View>
       </Modal>
 
-      {/* All-time score history chart */}
-      {allMyRounds.length > 0 && <AllRoundsChart rounds={allMyRounds} udiscNames={udiscNames} />}
-
       {/* Summary strip */}
       <View style={styles.summaryRow}>
         {[
@@ -413,6 +410,9 @@ export default function StatsScreen() {
           </View>
         ))}
       </View>
+
+      {/* All-time score history chart */}
+      {allMyRounds.length > 0 && <AllRoundsChart rounds={allMyRounds} udiscNames={udiscNames} />}
 
       {/* Date filter chips */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
