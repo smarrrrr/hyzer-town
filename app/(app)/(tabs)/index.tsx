@@ -86,7 +86,7 @@ export default function HomeScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3db56b" />}
     >
       <View style={styles.statsRow}>
-        <StatCard label="Rounds" value={loading ? '…' : String(rounds.length)} />
+        <StatCard label="Rounds" value={loading ? '…' : String(udiscNames.length ? rounds.filter(r => r.players.some(p => udiscNames.includes(p.name))).length : rounds.length)} />
         <StatCard label="Avg Score" value={loading ? '…' : fmtScore(avgScore != null ? Math.round(avgScore) : null)} />
         <StatCard label="Best Round" value={loading ? '…' : fmtScore(bestRound)} />
       </View>
