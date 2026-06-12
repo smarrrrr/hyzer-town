@@ -1,38 +1,27 @@
 import { Stack } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import ImportModal from '@/components/ImportModal';
 
-let getPendingCSV: (() => string | null) | null = null;
-let clearPendingCSV: (() => void) | null = null;
-let moduleLoadError = 'not attempted';
-
+let FileSystem: typeof import('expo-file-system') | null = null;
 if (Platform.OS === 'ios') {
-  try {
-    const mod = require('shared-storage');
-    getPendingCSV = mod.getPendingCSV;
-    clearPendingCSV = mod.clearPendingCSV;
-    moduleLoadError = getPendingCSV ? 'loaded ok' : 'loaded but functions missing';
-  } catch (e: any) {
-    moduleLoadError = e?.message ?? 'unknown error';
-  }
+  try { FileSystem = require('expo-file-system'); } catch {}
 }
 
-function checkAndConsumePendingCSV(source: string): string | null {
-  if (!getPendingCSV || !clearPendingCSV) {
-    Alert.alert('DEBUG', `[${source}] Module not loaded: ${moduleLoadError}`);
-    return null;
-  }
-  let csv: string | null = null;
+const PENDING_FILENAME = 'pending_import.csv';
+
+async function checkAndConsumePendingCSV(): Promise<string | null> {
+  if (!FileSystem?.documentDirectory) return null;
+  const uri = FileSystem.documentDirectory + PENDING_FILENAME;
   try {
-    csv = getPendingCSV();
-  } catch (e: any) {
-    Alert.alert('DEBUG', `[${source}] getPendingCSV threw: ${e?.message}`);
+    const info = await FileSystem.getInfoAsync(uri);
+    if (!info.exists) return null;
+    const csv = await FileSystem.readAsStringAsync(uri);
+    await FileSystem.deleteAsync(uri, { idempotent: true });
+    return csv || null;
+  } catch {
     return null;
   }
-  Alert.alert('DEBUG', `[${source}] getPendingCSV returned: ${csv ? `${csv.length} chars` : 'null'}`);
-  if (csv) clearPendingCSV();
-  return csv ?? null;
 }
 
 export default function AppLayout() {
@@ -40,19 +29,19 @@ export default function AppLayout() {
   const [importVisible, setImportVisible] = useState(false);
   const appState = useRef(AppState.currentState);
 
-  // Check on mount (app was opened via share, then cold-started)
-  useEffect(() => {
-    const csv = checkAndConsumePendingCSV('mount');
+  const runCheck = async () => {
+    const csv = await checkAndConsumePendingCSV();
     if (csv) { setPendingCSV(csv); setImportVisible(true); }
-  }, []);
+  };
 
-  // Check when app returns to foreground (app was already open)
+  // Check on mount
+  useEffect(() => { runCheck(); }, []);
+
+  // Check when app returns to foreground
   useEffect(() => {
     const sub = AppState.addEventListener('change', next => {
-      Alert.alert('DEBUG', `AppState: ${appState.current} → ${next}`);
       if (appState.current.match(/inactive|background/) && next === 'active') {
-        const csv = checkAndConsumePendingCSV('foreground');
-        if (csv) { setPendingCSV(csv); setImportVisible(true); }
+        runCheck();
       }
       appState.current = next;
     });

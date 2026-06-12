@@ -13,6 +13,7 @@ class AppDelegate: ExpoAppDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
+    copyPendingCSVToDocuments()
     let delegate = ReactNativeDelegate()
     let factory = ExpoReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()
@@ -29,6 +30,11 @@ class AppDelegate: ExpoAppDelegate {
 #endif
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  public override func applicationDidBecomeActive(_ application: UIApplication) {
+    super.applicationDidBecomeActive(application)
+    copyPendingCSVToDocuments()
   }
 
   // Linking API
@@ -49,6 +55,20 @@ class AppDelegate: ExpoAppDelegate {
     let result = RCTLinkingManager.application(application, continue: userActivity, restorationHandler: restorationHandler)
     return super.application(application, continue: userActivity, restorationHandler: restorationHandler) || result
   }
+}
+
+private func copyPendingCSVToDocuments() {
+  let appGroup = "group.com.anonymous.hyzer-town"
+  let filename = "pending_import.csv"
+  let fm = FileManager.default
+  guard let container = fm.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else { return }
+  let src = container.appendingPathComponent(filename)
+  guard fm.fileExists(atPath: src.path),
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+  let dest = docs.appendingPathComponent(filename)
+  try? fm.removeItem(at: dest)
+  try? fm.copyItem(at: src, to: dest)
+  try? fm.removeItem(at: src)
 }
 
 class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
