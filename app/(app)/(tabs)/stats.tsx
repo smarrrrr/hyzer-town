@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Modal, ActivityIndicator, TouchableOpacity, Pressable, Dimensions,
+  View, Text, StyleSheet, ScrollView, Modal, ActivityIndicator, TouchableOpacity, Pressable, useWindowDimensions,
 } from 'react-native';
 import { useAuth } from '@/lib/auth';
 import { getRoundsImportedBy, getUserProfile } from '@/lib/rounds';
@@ -482,10 +482,14 @@ export default function StatsScreen() {
 const CHART_H_INSET = 52;
 
 function AllRoundsChart({ rounds, udiscNames }: { rounds: Round[]; udiscNames: string[] }) {
+  const { width: windowW } = useWindowDimensions();
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
-  const [containerW, setContainerW] = useState(
-    () => Math.max(1, Dimensions.get('window').width - CHART_H_INSET),
-  );
+  const [containerW, setContainerW] = useState(() => Math.max(1, windowW - CHART_H_INSET));
+
+  useEffect(() => {
+    setContainerW(Math.max(1, windowW - CHART_H_INSET));
+    setActiveIdx(null);
+  }, [windowW]);
 
   const buckets = useMemo(
     () => pickBuckets(rounds, udiscNames, containerW),
