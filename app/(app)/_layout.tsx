@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Platform } from 'react-native';
 import ImportModal from '@/components/ImportModal';
+import { RoundsRefreshProvider, useRoundsRefresh } from '@/lib/rounds-refresh';
 
 import * as FileSystem from 'expo-file-system/legacy';
 
@@ -21,7 +22,8 @@ async function checkAndConsumePendingCSV(): Promise<string | null> {
   }
 }
 
-export default function AppLayout() {
+function AppLayoutInner() {
+  const { triggerRefresh } = useRoundsRefresh();
   const [pendingCSV, setPendingCSV] = useState<string | null>(null);
   const [importVisible, setImportVisible] = useState(false);
   const appState = useRef(AppState.currentState);
@@ -77,7 +79,16 @@ export default function AppLayout() {
         visible={importVisible}
         initialCSV={pendingCSV}
         onClose={() => { setImportVisible(false); setPendingCSV(null); }}
+        onImportComplete={triggerRefresh}
       />
     </>
+  );
+}
+
+export default function AppLayout() {
+  return (
+    <RoundsRefreshProvider>
+      <AppLayoutInner />
+    </RoundsRefreshProvider>
   );
 }

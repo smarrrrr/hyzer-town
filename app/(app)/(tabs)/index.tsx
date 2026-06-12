@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl } from 'react-native';
 import { useAuth } from '@/lib/auth';
 import { getRoundsImportedBy, getUserProfile } from '@/lib/rounds';
+import { useRoundsRefresh } from '@/lib/rounds-refresh';
 import type { Round, PlayerScore } from '@/lib/types';
 
 function fmtRelScore(relativeToPar: number | null, total: number): string {
@@ -30,24 +31,35 @@ function getHoleStats(player: PlayerScore, pars: (number | null)[]) {
 
 export default function HomeScreen() {
   const { user } = useAuth();
+  const { refreshKey } = useRoundsRefresh();
   const [rounds, setRounds] = useState<Round[]>([]);
   const [udiscNames, setUdiscNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadData = useCallback(async () => {
     if (!user) return;
-    Promise.all([
+    const [r, profile] = await Promise.all([
       getRoundsImportedBy(user.uid),
       getUserProfile(user.uid),
-    ]).then(([r, profile]) => {
-      const sorted = [...r].sort((a, b) => b.startDate.localeCompare(a.startDate));
-      setRounds(sorted);
-      const names = profile?.udiscNames
-        ?? ((profile as any)?.udiscName ? [(profile as any).udiscName] : []);
-      setUdiscNames(names);
-    }).finally(() => setLoading(false));
+    ]);
+    const sorted = [...r].sort((a, b) => b.startDate.localeCompare(a.startDate));
+    setRounds(sorted);
+    const names = profile?.udiscNames
+      ?? ((profile as any)?.udiscName ? [(profile as any).udiscName] : []);
+    setUdiscNames(names);
   }, [user]);
+
+  useEffect(() => {
+    loadData().finally(() => setLoading(false));
+  }, [loadData, refreshKey]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadData().catch(() => {});
+    setRefreshing(false);
+  }, [loadData]);
 
   const findMe = (r: Round) =>
     udiscNames.length ? r.players.find(p => udiscNames.includes(p.name)) : null;
@@ -68,7 +80,11 @@ export default function HomeScreen() {
   const recent = rounds.slice(0, 10);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3db56b" />}
+    >
       <View style={styles.statsRow}>
         <StatCard label="Rounds" value={loading ? '…' : String(rounds.length)} />
         <StatCard label="Avg Score" value={loading ? '…' : fmtScore(avgScore != null ? Math.round(avgScore) : null)} />

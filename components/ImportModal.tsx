@@ -31,13 +31,14 @@ interface RoundItem {
 interface Props {
   visible: boolean;
   onClose: () => void;
+  onImportComplete?: () => void;
   /** Pre-loaded CSV string from the iOS Share Extension — skips the file picker step */
   initialCSV?: string | null;
 }
 
 type Step = 'pick' | 'review' | 'importing' | 'done';
 
-export default function ImportModal({ visible, onClose, initialCSV }: Props) {
+export default function ImportModal({ visible, onClose, onImportComplete, initialCSV }: Props) {
   const { user } = useAuth();
   const [step, setStep] = useState<Step>('pick');
   const [items, setItems] = useState<RoundItem[]>([]);
@@ -167,6 +168,7 @@ export default function ImportModal({ visible, onClose, initialCSV }: Props) {
     }
 
     setStep('done');
+    if (updated.some(i => i.status === 'done')) onImportComplete?.();
   };
 
   const importCount = items.filter(i => i.action === 'import').length;
