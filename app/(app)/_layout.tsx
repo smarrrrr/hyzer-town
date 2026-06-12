@@ -1,6 +1,6 @@
 import { Stack } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Platform } from 'react-native';
+import { AppState } from 'react-native';
 import ImportModal from '@/components/ImportModal';
 import { RoundsRefreshProvider, useRoundsRefresh } from '@/lib/rounds-refresh';
 
@@ -27,25 +27,16 @@ function AppLayoutInner() {
   const [pendingCSV, setPendingCSV] = useState<string | null>(null);
   const [importVisible, setImportVisible] = useState(false);
   const appState = useRef(AppState.currentState);
+  const importVisibleRef = useRef(false);
 
   const runCheck = async () => {
-    let debugMsg = 'docDir: ' + (FileSystem.documentDirectory ?? 'null') + '\n';
-    try {
-      const debugUri = (FileSystem.documentDirectory ?? '') + 'share_debug.json';
-      const info = await FileSystem.getInfoAsync(debugUri);
-      if (info.exists) {
-        debugMsg += await FileSystem.readAsStringAsync(debugUri);
-      } else {
-        debugMsg += 'share_debug.json not found — AppDelegate never ran';
-      }
-    } catch (e: any) {
-      debugMsg += 'error: ' + (e?.message ?? String(e));
-    }
-    Alert.alert('Native debug', debugMsg);
-
+    if (importVisibleRef.current) return;
     const csv = await checkAndConsumePendingCSV();
-    Alert.alert('JS check', csv ? `CSV: ${csv.length} chars` : 'No CSV in documents');
-    if (csv) { setPendingCSV(csv); setImportVisible(true); }
+    if (csv) {
+      setPendingCSV(csv);
+      setImportVisible(true);
+      importVisibleRef.current = true;
+    }
   };
 
   // Check on mount
@@ -78,7 +69,11 @@ function AppLayoutInner() {
       <ImportModal
         visible={importVisible}
         initialCSV={pendingCSV}
-        onClose={() => { setImportVisible(false); setPendingCSV(null); }}
+        onClose={() => {
+          setImportVisible(false);
+          setPendingCSV(null);
+          importVisibleRef.current = false;
+        }}
         onImportComplete={triggerRefresh}
       />
     </>
