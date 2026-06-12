@@ -413,12 +413,12 @@ function CoursesSection({ stats }: { stats: CourseStats[] }) {
             <ThreeStat label="Rounds" value={String(c.rounds)} />
             <ThreeStat
               label="Avg"
-              value={fmtRel(c.avgRelToPar, 1)}
+              value={parseFloat(c.avgRelToPar.toFixed(1)).toString()}
               color={relColor(c.avgRelToPar)}
             />
             <ThreeStat
               label="Best"
-              value={fmtRel(c.bestRelToPar)}
+              value={String(c.bestRelToPar)}
               color={relColor(c.bestRelToPar)}
             />
           </View>
