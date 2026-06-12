@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Platform } from 'react-native';
 import ImportModal from '@/components/ImportModal';
 
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 const PENDING_FILENAME = 'pending_import.csv';
 
