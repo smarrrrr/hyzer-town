@@ -20,7 +20,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: 'Rounds',
           tabBarIcon: ({ color }: { color: ColorValue }) => (
             <SymbolView name="house.fill" tintColor={color} size={24} />
           ),

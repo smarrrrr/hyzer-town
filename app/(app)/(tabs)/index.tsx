@@ -5,6 +5,11 @@ import { getRoundsImportedBy, getUserProfile } from '@/lib/rounds';
 import { useRoundsRefresh } from '@/lib/rounds-refresh';
 import type { Round, PlayerScore } from '@/lib/types';
 
+function fmtScore(n: number | null): string {
+  if (n == null) return '—';
+  return n === 0 ? 'E' : n > 0 ? `+${n}` : `${n}`;
+}
+
 function fmtRelScore(relativeToPar: number | null, total: number): string {
   if (relativeToPar == null) return String(total);
   const rel = relativeToPar === 0 ? 'E' : relativeToPar > 0 ? `+${relativeToPar}` : `${relativeToPar}`;
@@ -64,19 +69,6 @@ export default function HomeScreen() {
   const findMe = (r: Round) =>
     udiscNames.length ? r.players.find(p => udiscNames.includes(p.name)) : null;
 
-  const myScores = rounds.flatMap(r => {
-    const p = findMe(r);
-    return p?.relativeToPar != null ? [p.relativeToPar] : [];
-  });
-
-  const avgScore = myScores.length
-    ? myScores.reduce((a, b) => a + b, 0) / myScores.length
-    : null;
-  const bestRound = myScores.length ? Math.min(...myScores) : null;
-
-  const fmtScore = (n: number | null) =>
-    n == null ? '—' : n === 0 ? 'E' : n > 0 ? `+${n}` : `${n}`;
-
   const recent = rounds.slice(0, 10);
 
   return (
@@ -85,12 +77,6 @@ export default function HomeScreen() {
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3db56b" />}
     >
-      <View style={styles.statsRow}>
-        <StatCard label="Rounds" value={loading ? '…' : String(udiscNames.length ? rounds.filter(r => r.players.some(p => udiscNames.includes(p.name))).length : rounds.length)} />
-        <StatCard label="Avg Score" value={loading ? '…' : fmtScore(avgScore != null ? Math.round(avgScore) : null)} />
-        <StatCard label="Best Round" value={loading ? '…' : fmtScore(bestRound)} />
-      </View>
-
       <Text style={styles.sectionTitle}>Recent Rounds</Text>
 
       {loading ? (
@@ -355,15 +341,6 @@ function PlayerOverviewSection({ round }: { round: Round }) {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.statCard}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr.split(' ')[0]);
   if (isNaN(d.getTime())) return dateStr.split(' ')[0];
@@ -373,18 +350,6 @@ function formatDate(dateStr: string): string {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f2419' },
   content: { padding: 20, gap: 20 },
-  statsRow: { flexDirection: 'row', gap: 12 },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#1e3a2a',
-    borderRadius: 14,
-    padding: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#2d5a3d',
-  },
-  statValue: { fontSize: 22, fontWeight: '800', color: '#3db56b' },
-  statLabel: { fontSize: 11, color: '#8fb89a', marginTop: 2, fontWeight: '600' },
   sectionTitle: { fontSize: 17, fontWeight: '700', color: '#fff' },
   loadingState: { paddingVertical: 48, alignItems: 'center' },
   emptyState: { alignItems: 'center', paddingVertical: 48, gap: 8 },
