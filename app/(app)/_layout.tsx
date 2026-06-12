@@ -3,15 +3,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Platform } from 'react-native';
 import ImportModal from '@/components/ImportModal';
 
-let FileSystem: typeof import('expo-file-system') | null = null;
-if (Platform.OS === 'ios') {
-  try { FileSystem = require('expo-file-system'); } catch {}
-}
+import * as FileSystem from 'expo-file-system';
 
 const PENDING_FILENAME = 'pending_import.csv';
 
 async function checkAndConsumePendingCSV(): Promise<string | null> {
-  if (!FileSystem?.documentDirectory) return null;
+  if (!FileSystem.documentDirectory) return null;
   const uri = FileSystem.documentDirectory + PENDING_FILENAME;
   try {
     const info = await FileSystem.getInfoAsync(uri);
@@ -30,23 +27,22 @@ export default function AppLayout() {
   const appState = useRef(AppState.currentState);
 
   const runCheck = async () => {
-    // Show native debug log if present
-    if (FileSystem?.documentDirectory) {
-      try {
-        const debugUri = FileSystem.documentDirectory + 'share_debug.json';
-        const info = await FileSystem.getInfoAsync(debugUri);
-        if (info.exists) {
-          const txt = await FileSystem.readAsStringAsync(debugUri);
-          Alert.alert('Native debug', txt);
-        } else {
-          Alert.alert('Native debug', 'share_debug.json not found — copyPendingCSVToDocuments never ran');
-        }
-      } catch (e: any) {
-        Alert.alert('Native debug error', e?.message);
+    let debugMsg = 'docDir: ' + (FileSystem.documentDirectory ?? 'null') + '\n';
+    try {
+      const debugUri = (FileSystem.documentDirectory ?? '') + 'share_debug.json';
+      const info = await FileSystem.getInfoAsync(debugUri);
+      if (info.exists) {
+        debugMsg += await FileSystem.readAsStringAsync(debugUri);
+      } else {
+        debugMsg += 'share_debug.json not found — AppDelegate never ran';
       }
+    } catch (e: any) {
+      debugMsg += 'error: ' + (e?.message ?? String(e));
     }
+    Alert.alert('Native debug', debugMsg);
+
     const csv = await checkAndConsumePendingCSV();
-    Alert.alert('JS check', csv ? `CSV found: ${csv.length} chars` : 'No CSV in documents');
+    Alert.alert('JS check', csv ? `CSV: ${csv.length} chars` : 'No CSV in documents');
     if (csv) { setPendingCSV(csv); setImportVisible(true); }
   };
 
