@@ -61,14 +61,41 @@ private func copyPendingCSVToDocuments() {
   let appGroup = "group.com.anonymous.hyzer-town"
   let filename = "pending_import.csv"
   let fm = FileManager.default
-  guard let container = fm.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else { return }
+  var log = ["time": ISO8601DateFormatter().string(from: Date())] as [String: String]
+
+  guard let container = fm.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
+    log["result"] = "no_container"
+    writeDebugLog(log); return
+  }
+  log["container"] = container.path
+
   let src = container.appendingPathComponent(filename)
+  log["src_exists"] = fm.fileExists(atPath: src.path) ? "yes" : "no"
+
   guard fm.fileExists(atPath: src.path),
-        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first else {
+    log["result"] = "no_src_or_docs"
+    writeDebugLog(log); return
+  }
+
   let dest = docs.appendingPathComponent(filename)
   try? fm.removeItem(at: dest)
-  try? fm.copyItem(at: src, to: dest)
-  try? fm.removeItem(at: src)
+  do {
+    try fm.copyItem(at: src, to: dest)
+    try? fm.removeItem(at: src)
+    log["result"] = "copied_ok"
+  } catch {
+    log["result"] = "copy_failed: \(error)"
+  }
+  writeDebugLog(log)
+}
+
+private func writeDebugLog(_ log: [String: String]) {
+  guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+  let url = docs.appendingPathComponent("share_debug.json")
+  if let data = try? JSONSerialization.data(withJSONObject: log) {
+    try? data.write(to: url)
+  }
 }
 
 class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {

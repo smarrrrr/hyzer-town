@@ -1,6 +1,6 @@
 import { Stack } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { AppState, Platform } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 import ImportModal from '@/components/ImportModal';
 
 let FileSystem: typeof import('expo-file-system') | null = null;
@@ -30,7 +30,23 @@ export default function AppLayout() {
   const appState = useRef(AppState.currentState);
 
   const runCheck = async () => {
+    // Show native debug log if present
+    if (FileSystem?.documentDirectory) {
+      try {
+        const debugUri = FileSystem.documentDirectory + 'share_debug.json';
+        const info = await FileSystem.getInfoAsync(debugUri);
+        if (info.exists) {
+          const txt = await FileSystem.readAsStringAsync(debugUri);
+          Alert.alert('Native debug', txt);
+        } else {
+          Alert.alert('Native debug', 'share_debug.json not found — copyPendingCSVToDocuments never ran');
+        }
+      } catch (e: any) {
+        Alert.alert('Native debug error', e?.message);
+      }
+    }
     const csv = await checkAndConsumePendingCSV();
+    Alert.alert('JS check', csv ? `CSV found: ${csv.length} chars` : 'No CSV in documents');
     if (csv) { setPendingCSV(csv); setImportVisible(true); }
   };
 
