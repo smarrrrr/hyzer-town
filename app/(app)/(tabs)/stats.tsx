@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Modal, ActivityIndicator, TouchableOpacity, Pressable,
+  View, Text, StyleSheet, ScrollView, Modal, ActivityIndicator, TouchableOpacity, Pressable, Dimensions,
 } from 'react-native';
 import { useAuth } from '@/lib/auth';
 import { getRoundsImportedBy, getUserProfile } from '@/lib/rounds';
@@ -478,18 +478,23 @@ export default function StatsScreen() {
 
 // --- sub-sections ---
 
+// card padding (16*2) + y-axis (14) + gap (6)
+const CHART_H_INSET = 52;
+
 function AllRoundsChart({ rounds, udiscNames }: { rounds: Round[]; udiscNames: string[] }) {
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
-  const [containerW, setContainerW] = useState(0);
+  const [containerW, setContainerW] = useState(
+    () => Math.max(1, Dimensions.get('window').width - CHART_H_INSET),
+  );
 
   const buckets = useMemo(
-    () => containerW > 0 ? pickBuckets(rounds, udiscNames, containerW) : [],
+    () => pickBuckets(rounds, udiscNames, containerW),
     [rounds, udiscNames, containerW],
   );
 
-  if (containerW > 0 && buckets.length === 0) return null;
+  if (buckets.length === 0) return null;
 
-  const slotW = containerW > 0 ? containerW / buckets.length : 0;
+  const slotW = containerW / buckets.length;
   const absMax = buckets.length > 0 ? Math.max(...buckets.map(b => Math.abs(b.avgRelToPar)), 1) : 1;
   const pixPerUnit = CHART_HALF_H / absMax;
 
@@ -534,8 +539,7 @@ function AllRoundsChart({ rounds, udiscNames }: { rounds: Round[]; udiscNames: s
             style={[styles.chartBarsArea, { overflow: 'hidden' }]}
             onLayout={e => setContainerW(e.nativeEvent.layout.width)}
           >
-            {containerW > 0 && (
-              <View style={[styles.chartBars, { width: containerW }]}>
+            <View style={[styles.chartBars, { width: containerW }]}>
                 {buckets.map((b, i) => {
                   const v = b.avgRelToPar;
                   const barH = v !== 0 ? Math.max(2, Math.abs(v) * pixPerUnit) : 0;
@@ -576,7 +580,6 @@ function AllRoundsChart({ rounds, udiscNames }: { rounds: Round[]; udiscNames: s
                   );
                 })}
               </View>
-            )}
           </View>
         </View>
       </View>
