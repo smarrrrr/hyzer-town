@@ -26,16 +26,7 @@ export default function TabsLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="play"
-        options={{
-          title: 'Play',
-          tabBarIcon: ({ color }: { color: ColorValue }) => (
-            <SymbolView name="plus.circle.fill" tintColor={color} size={24} />
-          ),
-        }}
-      />
-      <Tabs.Screen
+<Tabs.Screen
         name="stats"
         options={{
           title: 'Stats',
