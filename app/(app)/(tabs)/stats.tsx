@@ -597,18 +597,6 @@ function CourseScoreChart({ history }: { history: CourseRound[] }) {
                 })}
               </View>
 
-              <View style={[styles.chartLabels, { width: contentW }]}>
-                {history.map((h, i) => (
-                  <Text
-                    key={i}
-                    style={[styles.chartLabel, { width: slotW, color: relColor(h.relToPar) },
-                      i === activeIdx && styles.chartLabelActive]}
-                    numberOfLines={1}
-                  >
-                    {h.relToPar === 0 ? 'E' : h.relToPar > 0 ? `+${h.relToPar}` : `${h.relToPar}`}
-                  </Text>
-                ))}
-              </View>
             </View>
           </ScrollView>
         </View>
