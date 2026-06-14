@@ -164,7 +164,7 @@ async function fetchEventRounds(
 }
 
 export const syncPDGATournaments = onCall(
-  {timeoutSeconds: 120, memory: "512MiB"},
+  {timeoutSeconds: 120, memory: "512MiB", invoker: "public"},
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "Must be signed in");
