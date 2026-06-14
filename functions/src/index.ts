@@ -1,8 +1,8 @@
-import { setGlobalOptions } from "firebase-functions";
+import {setGlobalOptions} from "firebase-functions";
 import * as admin from "firebase-admin";
 
 admin.initializeApp();
 
-setGlobalOptions({ maxInstances: 10 });
+setGlobalOptions({maxInstances: 10});
 
-export { syncPDGATournaments } from "./pdga";
+export {syncPDGATournaments} from "./pdga";
