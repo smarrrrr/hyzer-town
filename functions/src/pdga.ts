@@ -75,7 +75,7 @@ function buildColMap(
     if (/^(rd\.?\s*\d+|r\d+|round\s*\d+)$/.test(text)) {
       roundIdxs.push(i);
     }
-    if (/^\+\/-$|^diff$|^score$|^strokes$/.test(text)) {
+    if (/^\+\/-$|^diff$/.test(text)) {
       diffIdx = i;
     }
   });
