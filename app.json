@@ -17,9 +17,15 @@
             "CFBundleURLSchemes": [
               "com.googleusercontent.apps.1049660895046-1voq7n3bh1n1ercjvrn4ocul0vaos308"
             ]
+          },
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.1049660895046-1voq7n3bh1n1ercjvrn4ocul0vaos308"
+            ]
           }
         ]
-      }
+      },
+      "runtimeVersion": "1.0.0"
     },
     "android": {
       "adaptiveIcon": {
@@ -28,7 +34,10 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
     },
     "web": {
       "output": "static",
@@ -56,6 +65,9 @@
       "eas": {
         "projectId": "8df3767a-d021-41ce-a2ce-c7454f8cf69e"
       }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/8df3767a-d021-41ce-a2ce-c7454f8cf69e"
     }
   }
 }

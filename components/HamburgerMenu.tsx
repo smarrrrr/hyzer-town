@@ -11,10 +11,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { useAuth } from '@/lib/auth';
 import { getUserProfile, saveUserProfile } from '@/lib/rounds';
 import ImportModal from './ImportModal';
+import app from '@/lib/firebase';
 
 export default function HamburgerMenu() {
   const [open, setOpen] = useState(false);
@@ -23,6 +26,8 @@ export default function HamburgerMenu() {
   const [newName, setNewName] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [pdgaNumber, setPdgaNumber] = useState('');
+  const [pdgaSyncing, setPdgaSyncing] = useState(false);
   const { user, signOut } = useAuth();
 
   const displayName = user?.displayName ?? user?.email?.split('@')[0] ?? 'Disc Golfer';
@@ -35,10 +40,10 @@ export default function HamburgerMenu() {
     if (open && user) {
       getUserProfile(user.uid)
         .then(profile => {
-          // migrate old single-name format
           const names = profile?.udiscNames
             ?? ((profile as any)?.udiscName ? [(profile as any).udiscName] : []);
           setUdiscNames(names);
+          if (profile?.pdgaNumber) setPdgaNumber(profile.pdgaNumber);
         })
         .catch(() => {});
     }
@@ -84,6 +89,27 @@ export default function HamburgerMenu() {
   const handleImport = () => {
     setOpen(false);
     setImportOpen(true);
+  };
+
+  const handleSyncPDGA = async () => {
+    const num = pdgaNumber.trim();
+    if (!num || !/^\d+$/.test(num)) {
+      Alert.alert('Invalid PDGA number', 'Enter your numeric PDGA player number.');
+      return;
+    }
+    if (!user) return;
+    setPdgaSyncing(true);
+    try {
+      await saveUserProfile(user.uid, { pdgaNumber: num });
+      const fn = httpsCallable(getFunctions(app), 'syncPDGATournaments');
+      const result = await fn({ pdgaNumber: num }) as { data: { synced: number; total: number } };
+      const { synced, total } = result.data;
+      Alert.alert('PDGA Sync Complete', `Synced ${synced} of ${total} tournaments.`);
+    } catch (e: any) {
+      Alert.alert('Sync failed', e?.message ?? 'Unknown error');
+    } finally {
+      setPdgaSyncing(false);
+    }
   };
 
   return (
@@ -149,6 +175,32 @@ export default function HamburgerMenu() {
               </View>
 
               {saveError ? <Text style={styles.saveError}>{saveError}</Text> : null}
+            </View>
+
+            {/* PDGA */}
+            <View style={styles.fieldSection}>
+              <Text style={styles.fieldLabel}>PDGA number</Text>
+              <View style={styles.pdgaRow}>
+                <TextInput
+                  style={styles.pdgaInput}
+                  value={pdgaNumber}
+                  onChangeText={setPdgaNumber}
+                  placeholder="e.g. 230924"
+                  placeholderTextColor="#4a7a5a"
+                  keyboardType="number-pad"
+                  returnKeyType="done"
+                />
+                <TouchableOpacity
+                  style={[styles.syncBtn, pdgaSyncing && styles.syncBtnDisabled]}
+                  onPress={handleSyncPDGA}
+                  disabled={pdgaSyncing}
+                >
+                  {pdgaSyncing
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Text style={styles.syncBtnText}>Sync</Text>
+                  }
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={styles.divider} />
@@ -281,6 +333,30 @@ const styles = StyleSheet.create({
   addBtnText: { color: '#fff', fontSize: 18, fontWeight: '700', lineHeight: 20 },
 
   saveError: { color: '#e05555', fontSize: 12, marginTop: 4 },
+
+  pdgaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f2419',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2d5a3d',
+    paddingLeft: 12,
+    paddingRight: 6,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  pdgaInput: { flex: 1, color: '#fff', fontSize: 14 },
+  syncBtn: {
+    backgroundColor: '#3db56b',
+    borderRadius: 7,
+    paddingHorizontal: 12,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  syncBtnDisabled: { backgroundColor: '#2d5a3d' },
+  syncBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
   divider: { height: 1, backgroundColor: '#2d5a3d', marginBottom: 4 },
   menuItem: { paddingVertical: 14 },

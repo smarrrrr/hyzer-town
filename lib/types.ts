@@ -22,4 +22,5 @@ export interface Round {
 
 export interface UserProfile {
   udiscNames: string[];
+  pdgaNumber?: string;
 }
