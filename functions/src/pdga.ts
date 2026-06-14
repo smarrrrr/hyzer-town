@@ -21,8 +21,10 @@ const HEADERS = {
 interface RoundScore {
   round: number;
   total: number;
+  par: number | null;
   relativeToPar: number | null;
   holes: (number | null)[];
+  holePars: (number | null)[];
   rating: number | null;
 }
 
@@ -142,16 +144,19 @@ async function fetchPlayerEvents(
     let rounds: RoundScore[] = [];
     let totalRelToPar: number | null = null;
 
+    const emptyRound = (n: number, total: number): RoundScore => ({
+      round: n, total,
+      par: null, relativeToPar: null,
+      holes: [], holePars: [], rating: null,
+    });
+
     if (colMap.roundIdxs.length > 0) {
       // Use header-derived column indices
       rounds = colMap.roundIdxs
         .map((idx, i) => {
           const score = parseInt($(tds[idx]).text().trim());
           if (isNaN(score)) return null;
-          return {
-            round: i + 1, total: score,
-            relativeToPar: null, holes: [], rating: null,
-          } as RoundScore;
+          return emptyRound(i + 1, score);
         })
         .filter((r): r is RoundScore => r !== null);
 
@@ -172,10 +177,7 @@ async function fetchPlayerEvents(
         for (let i = divIdx + 1; i < tailStart; i++) {
           const score = parseInt(texts[i]);
           if (!isNaN(score)) {
-            rounds.push({
-              round: rounds.length + 1, total: score,
-              relativeToPar: null, holes: [], rating: null,
-            });
+            rounds.push(emptyRound(rounds.length + 1, score));
           }
         }
       }
@@ -192,7 +194,53 @@ async function fetchPlayerEvents(
 }
 
 /**
- * Fetches round scores from a PDGA event page as a fallback.
+ * Fetches hole pars for a PDGA event via the live scoring API.
+ * @param {string} tournId - The PDGA tournament ID.
+ * @param {string} division - The player's division.
+ * @return {Promise<(number|null)[]>} Hole pars array (empty if unavailable).
+ */
+async function fetchHolePars(
+  tournId: string,
+  division: string
+): Promise<(number | null)[]> {
+  const base = "https://www.pdga.com/apps/tournament/live-api/index.cfm";
+  const methods = [
+    `${base}?method=getCoursesandLayouts&TournID=${tournId}`,
+    `${base}?method=getCourseLayout&TournID=${tournId}&Division=${division}`,
+    `${base}?method=getLayout&TournID=${tournId}&Division=${division}`,
+  ];
+
+  for (const url of methods) {
+    try {
+      const {data} = await axios.get(url, {
+        headers: {...HEADERS, "Accept": "application/json"},
+        timeout: 10000,
+      });
+      // Look for hole par data in various possible shapes
+      const pars =
+        data?.holes?.map((h: Record<string, unknown>) =>
+          Number(h.Par ?? h.par ?? h.HolePar ?? h.holePar)
+        ) ??
+        data?.[0]?.holes?.map((h: Record<string, unknown>) =>
+          Number(h.Par ?? h.par)
+        ) ??
+        data?.[0]?.Holes?.map((h: Record<string, unknown>) =>
+          Number(h.Par ?? h.par)
+        );
+
+      if (Array.isArray(pars) && pars.length > 0 &&
+          pars.every((p) => p > 0)) {
+        return pars;
+      }
+    } catch {
+      // Try next method
+    }
+  }
+  return [];
+}
+
+/**
+ * Fetches round scores from the PDGA live API and event page.
  * @param {string} tournId - The PDGA tournament ID.
  * @param {string} pdgaNumber - The player's PDGA number.
  * @param {string} division - The player's division (e.g. MPO).
@@ -203,23 +251,42 @@ async function fetchEventRounds(
   pdgaNumber: string,
   division: string
 ): Promise<RoundScore[]> {
-  // Try the live scoring API first (active/recent events)
-  const apiUrl =
-    "https://www.pdga.com/apps/tournament/live-api/index.cfm" +
-    `?method=getGroupsandScores&TournID=${tournId}` +
-    `&Division=${division}`;
+  const base = "https://www.pdga.com/apps/tournament/live-api/index.cfm";
 
-  try {
-    const {data} = await axios.get(apiUrl, {
-      headers: {...HEADERS, "Accept": "application/json"},
-      timeout: 15000,
-    });
-    const roundsData =
-      Array.isArray(data) ? data : (data?.rounds ?? []);
+  // Fetch hole pars in parallel with scores
+  const [holeParsResult, scoreData] = await Promise.allSettled([
+    fetchHolePars(tournId, division),
+    axios.get(
+      `${base}?method=getGroupsandScores&TournID=${tournId}` +
+      `&Division=${division}`,
+      {
+        headers: {...HEADERS, "Accept": "application/json"},
+        timeout: 15000,
+      }
+    ),
+  ]);
+
+  const holePars: (number | null)[] =
+    holeParsResult.status === "fulfilled" ? holeParsResult.value : [];
+  const sumPars = (arr: (number | null)[]): number =>
+    arr.reduce((s: number, p) => s + (p ?? 0), 0);
+  const coursePar: number | null =
+    holePars.length > 0 ? sumPars(holePars) : null;
+
+  if (scoreData.status === "fulfilled") {
+    const data = scoreData.value.data;
+    const roundsData = Array.isArray(data) ? data : (data?.rounds ?? []);
     const rounds: RoundScore[] = [];
 
     for (const entry of roundsData) {
       const roundNum: number = entry.Round ?? entry.round;
+      // Hole pars may also be in the round entry
+      const entryPars: (number | null)[] = holePars.length > 0 ?
+        holePars :
+        (entry.HolePars ?? entry.holePars ?? []).map(Number);
+      const entryCoursePar: number | null = entryPars.length > 0 ?
+        sumPars(entryPars) : coursePar;
+
       const groups = entry.Groups ?? entry.groups ?? [];
       for (const group of groups) {
         const players = group.Players ?? group.players ?? [];
@@ -228,28 +295,34 @@ async function fetchEventRounds(
             String(p.PDGANum ?? p.pdgaNum) === pdgaNumber
         );
         if (!me) continue;
-        const holes: (number | null)[] = (
+
+        const holeScores: (number | null)[] = (
           me.ScorecardHoles ?? me.scorecardHoles ?? []
         ).map((h: unknown) =>
           h == null || h === "" ? null : Number(h)
         );
+
+        const total = Number(me.RoundScore ?? me.roundScore ?? 0);
+        const rel = me.RunningTotal != null ?
+          Number(me.RunningTotal) :
+          (entryCoursePar != null ? total - entryCoursePar : null);
+
         rounds.push({
           round: roundNum,
-          total: Number(me.RoundScore ?? me.roundScore ?? 0),
-          relativeToPar: me.RunningTotal != null ?
-            Number(me.RunningTotal) : null,
-          holes,
+          total,
+          par: entryCoursePar,
+          relativeToPar: rel,
+          holes: holeScores,
+          holePars: entryPars,
           rating: me.RoundRating != null ?
             Number(me.RoundRating) : null,
         });
       }
     }
     if (rounds.length > 0) return rounds;
-  } catch {
-    // Fall through to HTML scrape
   }
 
-  // HTML fallback: find player row via their profile link
+  // HTML fallback: scrape event results page
   const eventUrl = `https://www.pdga.com/tour/event/${tournId}`;
   const {data: html} = await axios.get(eventUrl, {
     headers: HEADERS, timeout: 15000,
@@ -262,32 +335,34 @@ async function fetchEventRounds(
   const row = playerLink.closest("tr");
   const table = row.closest("table");
   const cm = buildColMap($e, table);
-
   const cells = row.find("td").toArray();
 
   if (cm.roundIdxs.length > 0) {
     return cm.roundIdxs.map((idx, i) => ({
       round: i + 1,
       total: parseInt($e(cells[idx]).text().trim()) || 0,
+      par: coursePar,
       relativeToPar: null,
       holes: [],
+      holePars,
       rating: null,
     }));
   }
 
-  // Last resort: take second-to-last numeric cell as total
+  // Last resort
   const numericCells = cells
     .map((c) => parseInt($e(c).text().trim()))
     .filter((n) => !isNaN(n) && n > 10);
 
   if (numericCells.length > 0) {
+    const total = numericCells[numericCells.length - 1];
+    const rel = cm.diffIdx != null ?
+      parseDiff($e(cells[cm.diffIdx]).text()) :
+      (coursePar != null ? total - coursePar : null);
     return [{
-      round: 1,
-      total: numericCells[numericCells.length - 1],
-      relativeToPar: cm.diffIdx != null ?
-        parseDiff($e(cells[cm.diffIdx]).text()) : null,
-      holes: [],
-      rating: null,
+      round: 1, total,
+      par: coursePar, relativeToPar: rel,
+      holes: [], holePars, rating: null,
     }];
   }
 
