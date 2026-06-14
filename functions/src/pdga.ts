@@ -41,6 +41,11 @@ interface PDGATournamentResult extends PDGAEvent {
   syncedAt?: admin.firestore.FieldValue;
 }
 
+interface ColMap {
+  roundIdxs: number[];
+  diffIdx: number | null;
+}
+
 // Date patterns PDGA uses: "01-Apr-2025", "04/01/2025", "2025-04-01"
 const DATE_RE =
   /^\d{1,2}-\w{3,}-\d{4}$|^\d{2}\/\d{2}\/\d{4}$|^\d{4}-\d{2}-\d{2}$/;
@@ -52,55 +57,42 @@ const TIER_RE = /^(XS|ES|M|A|B|C|L|NT|BM|J|EX)$/i;
 const DIV_RE = /^(MPO|FPO|MA\d|FA\d|MJ|FJ|MC|FC)/i;
 
 /**
- * Parses round scores from a player-details table row.
- * Row layout: Place|Points|Event|Tier|Date|Division|R1|R2|...|Total|+/-|Rating
+ * Builds a column map from a table's thead row.
  * @param {cheerio.CheerioAPI} $ - The Cheerio instance.
- * @param {cheerio.Element} row - The table row element.
- * @return {object} Parsed rounds and totalRelToPar.
+ * @param {cheerio.Cheerio<cheerio.AnyNode>} table - The table element.
+ * @return {ColMap} Column index map for rounds and +/-.
  */
-function parseRoundsFromRow(
+function buildColMap(
   $: cheerio.CheerioAPI,
-  row: AnyNode
-): { rounds: RoundScore[]; totalRelToPar: number | null } {
-  const tds = $(row).find("td").toArray();
-  const texts = tds.map((td) => $(td).text().trim());
+  table: cheerio.Cheerio<AnyNode>
+): ColMap {
+  const roundIdxs: number[] = [];
+  let diffIdx: number | null = null;
 
-  // Find division cell index
-  const divIdx = texts.findIndex((t) => DIV_RE.test(t));
-  if (divIdx < 0 || tds.length <= divIdx + 3) {
-    return {rounds: [], totalRelToPar: null};
-  }
-
-  // Last cells: ... | Total | +/- | Avg Rating [| Fav icon]
-  // Fav column may be present as an icon td — detect by checking if
-  // the last cell is not numeric (icon/empty).
-  const lastText = texts[texts.length - 1];
-  const trailingOffset = /^\d/.test(lastText) ? 0 : 1;
-  const tailStart = tds.length - 3 - trailingOffset;
-
-  // +/- is the second of the last-3 numeric cells
-  const diffText = texts[tailStart + 1];
-  const diffClean = diffText.replace("+", "");
-  const totalRelToPar = diffClean === "E" ?
-    0 : (parseInt(diffClean) || null);
-
-  // Round score cells sit between division and the trailing cells
-  const roundCells = tds.slice(divIdx + 1, tailStart);
-  const rounds: RoundScore[] = [];
-  roundCells.forEach((td, i) => {
-    const score = parseInt($(td).text().trim());
-    if (!isNaN(score)) {
-      rounds.push({
-        round: i + 1,
-        total: score,
-        relativeToPar: null,
-        holes: [],
-        rating: null,
-      });
+  table.find("thead tr").first().find("th, td").each((i, th) => {
+    const text = $(th).text().trim().toLowerCase();
+    // Match "Rd 1", "R1", "Round 1", etc.
+    if (/^(rd\.?\s*\d+|r\d+|round\s*\d+)$/.test(text)) {
+      roundIdxs.push(i);
+    }
+    if (/^\+\/-$|^diff$|^score$|^strokes$/.test(text)) {
+      diffIdx = i;
     }
   });
 
-  return {rounds, totalRelToPar};
+  return {roundIdxs, diffIdx};
+}
+
+/**
+ * Parses a +/- string from PDGA ("E", "+5", "-3") to a number.
+ * @param {string} text - The text to parse.
+ * @return {number | null} The numeric value, or null if unparseable.
+ */
+function parseDiff(text: string): number | null {
+  const t = text.trim();
+  if (t === "E" || t === "0") return 0;
+  const n = parseInt(t.replace("+", ""));
+  return isNaN(n) ? null : n;
 }
 
 /**
@@ -112,39 +104,87 @@ async function fetchPlayerEvents(
   pdgaNumber: string
 ): Promise<PDGAEvent[]> {
   const url = `https://www.pdga.com/player/${pdgaNumber}/details`;
-  const {data} = await axios.get(url, {headers: HEADERS, timeout: 15000});
+  const {data} = await axios.get(url, {
+    headers: HEADERS, timeout: 15000,
+  });
   const $ = cheerio.load(data);
+
+  // Find the first table containing tournament event links
+  let targetTable = $("table").filter((_, t) =>
+    $(t).find("a[href*='/tour/event/']").length > 0
+  ).first();
+
+  if (!targetTable.length) {
+    targetTable = $("table.views-table").first();
+  }
+
+  const colMap = buildColMap($, targetTable);
 
   const events: PDGAEvent[] = [];
 
-  $("table.views-table tbody tr, table tbody tr").each((_, row) => {
+  targetTable.find("tbody tr").each((_, row) => {
     const link = $(row).find("a[href*='/tour/event/']").first();
     const href = link.attr("href") ?? "";
     const match = href.match(/\/tour\/event\/(\d+)/);
     if (!match) return;
 
-    const texts = $(row).find("td").toArray()
-      .map((td) => $(td).text().trim());
+    const tds = $(row).find("td").toArray();
+    const texts = tds.map((td) => $(td).text().trim());
 
     const date = texts.find((t) => DATE_RE.test(t)) ?? "";
     const tier = texts.find((t) => TIER_RE.test(t)) ?? "";
     const division = texts.find((t) => DIV_RE.test(t)) ?? "";
 
-    // Place: first small integer (place is rarely > 200)
-    const place = texts
-      .find((t) => /^\d+$/.test(t) && parseInt(t) <= 500) ?? null;
+    // Place: first small integer (place is rarely > 500)
+    const place =
+      texts.find((t) => /^\d+$/.test(t) && parseInt(t) <= 500) ?? null;
 
-    const {rounds, totalRelToPar} = parseRoundsFromRow($, row);
+    let rounds: RoundScore[] = [];
+    let totalRelToPar: number | null = null;
+
+    if (colMap.roundIdxs.length > 0) {
+      // Use header-derived column indices
+      rounds = colMap.roundIdxs
+        .map((idx, i) => {
+          const score = parseInt($(tds[idx]).text().trim());
+          if (isNaN(score)) return null;
+          return {
+            round: i + 1, total: score,
+            relativeToPar: null, holes: [], rating: null,
+          } as RoundScore;
+        })
+        .filter((r): r is RoundScore => r !== null);
+
+      if (colMap.diffIdx != null && tds[colMap.diffIdx]) {
+        totalRelToPar = parseDiff($(tds[colMap.diffIdx]).text());
+      }
+    } else {
+      // Fallback: find round scores by position relative to division col
+      const divIdx = texts.findIndex((t) => DIV_RE.test(t));
+      if (divIdx >= 0 && tds.length > divIdx + 4) {
+        // Tail: Total | +/- | Points | Rating [| Fav]
+        const lastIsNonNumeric = !/^\d/.test(texts[texts.length - 1]);
+        const offset = lastIsNonNumeric ? 1 : 0;
+        // 4 trailing cols: Total, +/-, Points, Rating
+        const tailStart = tds.length - 4 - offset;
+        totalRelToPar = parseDiff(texts[tailStart + 1] ?? "");
+        // Round cells are between division and Total
+        for (let i = divIdx + 1; i < tailStart; i++) {
+          const score = parseInt(texts[i]);
+          if (!isNaN(score)) {
+            rounds.push({
+              round: rounds.length + 1, total: score,
+              relativeToPar: null, holes: [], rating: null,
+            });
+          }
+        }
+      }
+    }
 
     events.push({
       tournId: match[1],
       name: link.text().trim(),
-      date,
-      tier,
-      division,
-      place,
-      rounds,
-      totalRelToPar,
+      date, tier, division, place, rounds, totalRelToPar,
     });
   });
 
@@ -174,7 +214,8 @@ async function fetchEventRounds(
       headers: {...HEADERS, "Accept": "application/json"},
       timeout: 15000,
     });
-    const roundsData = Array.isArray(data) ? data : (data?.rounds ?? []);
+    const roundsData =
+      Array.isArray(data) ? data : (data?.rounds ?? []);
     const rounds: RoundScore[] = [];
 
     for (const entry of roundsData) {
@@ -198,7 +239,8 @@ async function fetchEventRounds(
           relativeToPar: me.RunningTotal != null ?
             Number(me.RunningTotal) : null,
           holes,
-          rating: me.RoundRating != null ? Number(me.RoundRating) : null,
+          rating: me.RoundRating != null ?
+            Number(me.RoundRating) : null,
         });
       }
     }
@@ -210,8 +252,7 @@ async function fetchEventRounds(
   // HTML fallback: find player row via their profile link
   const eventUrl = `https://www.pdga.com/tour/event/${tournId}`;
   const {data: html} = await axios.get(eventUrl, {
-    headers: HEADERS,
-    timeout: 15000,
+    headers: HEADERS, timeout: 15000,
   });
   const $e = cheerio.load(html);
 
@@ -220,42 +261,31 @@ async function fetchEventRounds(
 
   const row = playerLink.closest("tr");
   const table = row.closest("table");
-
-  // Determine round columns from thead
-  const colHeaders: Array<{text: string; idx: number}> = [];
-  table.find("thead tr").first().find("th, td").each((i, th) => {
-    colHeaders.push({text: $e(th).text().trim(), idx: i});
-  });
-
-  const roundCols = colHeaders.filter((h) => /^R\d+$/i.test(h.text));
-  const diffCol = colHeaders.find((h) => /^\+\/-$|^diff$/i.test(h.text));
+  const cm = buildColMap($e, table);
 
   const cells = row.find("td").toArray();
 
-  if (roundCols.length > 0) {
-    return roundCols.map((col) => {
-      const cell = cells[col.idx];
-      const total = parseInt($e(cell).text().trim()) || 0;
-      return {
-        round: parseInt(col.text.replace(/R/i, "")),
-        total,
-        relativeToPar: null,
-        holes: [],
-        rating: null,
-      };
-    });
+  if (cm.roundIdxs.length > 0) {
+    return cm.roundIdxs.map((idx, i) => ({
+      round: i + 1,
+      total: parseInt($e(cells[idx]).text().trim()) || 0,
+      relativeToPar: null,
+      holes: [],
+      rating: null,
+    }));
   }
 
-  // Last resort: grab the total and +/-
-  if (cells.length >= 2) {
-    const diffText = diffCol ?
-      $e(cells[diffCol.idx]).text().trim() : "";
-    const diffVal = diffText.replace("+", "");
+  // Last resort: take second-to-last numeric cell as total
+  const numericCells = cells
+    .map((c) => parseInt($e(c).text().trim()))
+    .filter((n) => !isNaN(n) && n > 10);
+
+  if (numericCells.length > 0) {
     return [{
       round: 1,
-      total: parseInt($e(cells[cells.length - 1]).text().trim()) || 0,
-      relativeToPar: diffVal === "E" ?
-        0 : (parseInt(diffVal) || null),
+      total: numericCells[numericCells.length - 1],
+      relativeToPar: cm.diffIdx != null ?
+        parseDiff($e(cells[cm.diffIdx]).text()) : null,
       holes: [],
       rating: null,
     }];
@@ -300,19 +330,15 @@ export const syncPDGATournaments = onCall(
     for (const event of recent) {
       try {
         let {rounds} = event;
-
-        // Only fetch from event page if details page had no rounds
+        // Only hit event page if details page had no round data
         if (rounds.length === 0) {
           rounds = await fetchEventRounds(
-            event.tournId,
-            pdgaNumber,
-            event.division || "MPO"
+            event.tournId, pdgaNumber, event.division || "MPO"
           );
         }
 
         const result: PDGATournamentResult = {
-          ...event,
-          rounds,
+          ...event, rounds,
           syncedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         results.push(result);
