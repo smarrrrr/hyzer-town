@@ -186,7 +186,7 @@ function TournamentCard({ t }: { t: Tournament }) {
   const sorted = t.rounds.slice().sort((a, b) => a.round - b.round);
   const hasScores = sorted.length > 0;
   const scoreSummary = hasScores
-    ? sorted.map(r => r.total).join(' · ')
+    ? sorted.filter(r => r.total > 0).map(r => r.total).join(' · ')
     : null;
 
   return (

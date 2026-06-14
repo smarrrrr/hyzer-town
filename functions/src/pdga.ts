@@ -151,11 +151,11 @@ async function fetchPlayerEvents(
     });
 
     if (colMap.roundIdxs.length > 0) {
-      // Use header-derived column indices
+      // Use header-derived column indices; skip empty/zero cells
       rounds = colMap.roundIdxs
         .map((idx, i) => {
           const score = parseInt($(tds[idx]).text().trim());
-          if (isNaN(score)) return null;
+          if (isNaN(score) || score === 0) return null;
           return emptyRound(i + 1, score);
         })
         .filter((r): r is RoundScore => r !== null);
@@ -176,7 +176,7 @@ async function fetchPlayerEvents(
         // Round cells are between division and Total
         for (let i = divIdx + 1; i < tailStart; i++) {
           const score = parseInt(texts[i]);
-          if (!isNaN(score)) {
+          if (!isNaN(score) && score > 0) {
             rounds.push(emptyRound(rounds.length + 1, score));
           }
         }
