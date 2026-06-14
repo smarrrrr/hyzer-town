@@ -25,9 +25,11 @@ interface Tournament {
   tournId: string;
   name: string;
   date: string;
+  tier?: string;
   division: string;
   place: string | null;
   rounds: RoundScore[];
+  totalRelToPar?: number | null;
 }
 
 function fmtRel(n: number | null): string {
@@ -81,7 +83,10 @@ function RoundCard({ r }: { r: RoundScore }) {
 
 function TournamentCard({ t }: { t: Tournament }) {
   const [expanded, setExpanded] = useState(false);
-  const totalRel = t.rounds.reduce((sum, r) => sum + (r.relativeToPar ?? 0), 0);
+  const totalRel = t.totalRelToPar ??
+    t.rounds.reduce((sum, r) => sum + (r.relativeToPar ?? 0), 0);
+  const hasRel = t.totalRelToPar != null ||
+    t.rounds.some(r => r.relativeToPar != null);
   const hasScores = t.rounds.length > 0;
 
   return (
@@ -93,11 +98,13 @@ function TournamentCard({ t }: { t: Tournament }) {
       <View style={styles.cardHeader}>
         <View style={styles.cardLeft}>
           <Text style={styles.cardName} numberOfLines={2}>{t.name}</Text>
-          <Text style={styles.cardMeta}>{t.date}  ·  {t.division || '—'}</Text>
+          <Text style={styles.cardMeta}>
+            {[t.date, t.tier, t.division].filter(Boolean).join('  ·  ')}
+          </Text>
         </View>
         <View style={styles.cardRight}>
           <Text style={styles.cardPlace}>{fmtPlace(t.place)}</Text>
-          {hasScores && (
+          {hasRel && (
             <Text style={[
               styles.cardRel,
               totalRel < 0 && styles.under,
