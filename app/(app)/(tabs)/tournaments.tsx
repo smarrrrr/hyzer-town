@@ -83,11 +83,12 @@ function RoundCard({ r }: { r: RoundScore }) {
 
 function TournamentCard({ t }: { t: Tournament }) {
   const [expanded, setExpanded] = useState(false);
-  const totalRel = t.totalRelToPar ??
-    t.rounds.reduce((sum, r) => sum + (r.relativeToPar ?? 0), 0);
-  const hasRel = t.totalRelToPar != null ||
-    t.rounds.some(r => r.relativeToPar != null);
   const hasScores = t.rounds.length > 0;
+
+  const sorted = t.rounds.slice().sort((a, b) => a.round - b.round);
+  const scoreSummary = hasScores
+    ? sorted.map(r => r.total).join(' · ')
+    : null;
 
   return (
     <TouchableOpacity
@@ -101,28 +102,18 @@ function TournamentCard({ t }: { t: Tournament }) {
           <Text style={styles.cardMeta}>
             {[t.date, t.tier, t.division].filter(Boolean).join('  ·  ')}
           </Text>
+          {!expanded && scoreSummary && (
+            <Text style={styles.cardScoreSummary}>{scoreSummary}</Text>
+          )}
         </View>
         <View style={styles.cardRight}>
           <Text style={styles.cardPlace}>{fmtPlace(t.place)}</Text>
-          {hasRel && (
-            <Text style={[
-              styles.cardRel,
-              totalRel < 0 && styles.under,
-              totalRel > 0 && styles.over,
-            ]}>
-              {fmtRel(totalRel)}
-            </Text>
-          )}
         </View>
       </View>
 
       {expanded && hasScores && (
         <View style={styles.roundList}>
-          {t.rounds
-            .slice()
-            .sort((a, b) => a.round - b.round)
-            .map(r => <RoundCard key={r.round} r={r} />)
-          }
+          {sorted.map(r => <RoundCard key={r.round} r={r} />)}
         </View>
       )}
 
@@ -235,7 +226,7 @@ const styles = StyleSheet.create({
   cardMeta: { fontSize: 12, color: '#8fb89a' },
   cardRight: { alignItems: 'flex-end', gap: 2 },
   cardPlace: { fontSize: 22, fontWeight: '800', color: '#3db56b' },
-  cardRel: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  cardScoreSummary: { fontSize: 12, color: '#8fb89a', marginTop: 4 },
 
   expandChevron: { color: '#4a7a5a', fontSize: 11, textAlign: 'center', marginTop: 10 },
 
