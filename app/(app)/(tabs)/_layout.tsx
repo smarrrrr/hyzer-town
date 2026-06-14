@@ -44,6 +44,15 @@ export default function TabsLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="tournaments"
+        options={{
+          title: 'Tournaments',
+          tabBarIcon: ({ color }: { color: ColorValue }) => (
+            <SymbolView name="trophy.fill" tintColor={color} size={24} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }
